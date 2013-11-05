@@ -62,7 +62,7 @@ const (
 	InterfaceTemplate= "interface.js"
 	MethodTemplate= "method.js"
 	DefaultNamespace = "PROXY"
-	DefaultContext = "/jsproxy"
+	DefaultContext = "/gotojs"
 	//DefaultEnginePath = "_engine.js"
 	DefaultListenAddress = "localhost:8080"
 	DefaultFileServerDir = "public"
@@ -293,7 +293,8 @@ func (b *Frontend) loadTemplatesFromDir() {
 		log.Printf("Could not load template \"%s\". Using default templates.",e.Error())
 		b.loadDefaultTemplates()
 	} else {
-		for _,t:= range b.template.Templates() {
+
+		for _,t:= range ntemplate.Templates() {
 			log.Printf("Template found: %s.",t.Name())
 		}
 		b.template = ntemplate
@@ -438,7 +439,7 @@ func (b Binding) ValidationString(i,m string) (ret string){
 	return
 }
 
-//Context gets or sets the jsproxy path context. This path element defines
+//Context gets or sets the gotojs path context. This path element defines
 //how the engine code where the engine js code is served.
 func (f *Frontend) Context(args ...string) string {
 	al:=len(args)
@@ -485,7 +486,7 @@ func (f *Frontend) Start(args ...string) error {
 		}
 	}
 
-	// Setup jsproxy engine handler.
+	// Setup gotojs engine handler.
 	f.mux.Handle(f.context + "/",f)
 	f.httpd = &http.Server{
 		Addr:		addr,
@@ -528,6 +529,7 @@ func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 		if re:=recover();re!=nil {
 			http.Error(w,"",http.StatusInternalServerError)
 			log.Printf("[%s][%s] %s FAILED: %s",r.Method,r.URL.Path,re)
+			panic(re)
 		} else {
 			f.accessLog(w,r)
 		}

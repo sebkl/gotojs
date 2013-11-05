@@ -22,7 +22,7 @@ var frontend *Frontend
 func TestInitialization(t *testing.T) {
 	frontend = NewFrontend(F_VALIDATE_ARGS | F_ENABLE_FILESERVER,map[int]string{
 		P_NAMESPACE: "PROXY",
-		P_EXTERNALURL: "http://localhost:8786/jsproxy",
+		P_EXTERNALURL: "http://localhost:8786/gotojs",
 		P_BASEPATH: "../.."})
 
 	frontend.ExposeInterface(MyTestService)

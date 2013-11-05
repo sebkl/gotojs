@@ -11,7 +11,7 @@ import (
 
 func ExampleFrontend() {
 	// Initialize the frontend.
-	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8787/jsproxy"})
+	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8787/gotojs"})
 
 	// Declare function which needs to be exposed.
 	f:= func ( context *HTTPContext,name string) string {
@@ -28,10 +28,10 @@ func ExampleFrontend() {
 	go func() {log.Fatal(frontend.Start())}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
-	fmt.Println( Post("http://localhost:8787/jsproxy/","Example","Hello","TestEngine") )
+	fmt.Println( Post("http://localhost:8787/gotojs/","Example","Hello","TestEngine") )
 
 	// Output: 
-	// {"CRID":"TEST","Data":"Hello TestEngine, how are you ? (@/jsproxy/)"}
+	// {"CRID":"TEST","Data":"Hello TestEngine, how are you ? (@/gotojs/)"}
 }
 
 // Post performs a call to the gotojs proxy backend without the JS engine.

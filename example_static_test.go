@@ -11,13 +11,13 @@ import (
 
 func ExampleFrontend_static() {
 	// Initialize the frontend.
-	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8788/jsproxy"})
+	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8788/gotojs"})
 
 	// Define the content.
 	index:=`
 <html>
  <head>
-  <script src="jsproxy/engine.js"></script>
+  <script src="gotojs/engine.js"></script>
  </head>
  <body><h1>Hello World !</h1></body>
 </html>`
@@ -39,7 +39,7 @@ func ExampleFrontend_static() {
 	// Output: 
 	// <html>
 	//  <head>
-	//   <script src="jsproxy/engine.js"></script>
+	//   <script src="gotojs/engine.js"></script>
 	//  </head>
 	//  <body><h1>Hello World !</h1></body>
 	// </html>

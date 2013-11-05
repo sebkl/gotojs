@@ -14,7 +14,7 @@ import (
 func ExampleFrontend_fileserver() {
 	// Initialize the frontend.  Use /tmp as filserver root.
 	frontend := NewFrontend(F_DEFAULT ,map[int]string{
-		P_EXTERNALURL: "http://localhost:8789/jsproxy",
+		P_EXTERNALURL: "http://localhost:8789/gotojs",
 		P_PUBLICDIR: "/tmp",
 		P_PUBLICCONTEXT: "p"})
 
@@ -22,7 +22,7 @@ func ExampleFrontend_fileserver() {
 	index:=`
 <html>
  <head>
-  <script src="jsproxy/engine.js"></script>
+  <script src="gotojs/engine.js"></script>
  </head>
  <body><h1>Hello World !</h1></body>
 </html>`
@@ -53,7 +53,7 @@ func ExampleFrontend_fileserver() {
 	// Output: 
 	// <html>
 	//  <head>
-	//   <script src="jsproxy/engine.js"></script>
+	//   <script src="gotojs/engine.js"></script>
 	//  </head>
 	//  <body><h1>Hello World !</h1></body>
 	// </html>

@@ -7,6 +7,12 @@ type Templates struct {
 	Libraries []string
 }
 
+
+// DefaultTemplates returns the collection of internal Javascript templates for the generation of the JS engine.
+func DefaultTemplates() *Templates {
+	return &defaultTemplates
+}
+
 var defaultTemplates = Templates {
 	Binding: `
 /* #### JS/BINDING #### */
@@ -103,6 +109,10 @@ var {{.NS}} = {{.NS}} || {
 		for (var idx in as) {
 			var o = args[idx];
 			var mes = "Argument #" + (idx+1) + " of method \""+i+"." + m + "("+as+")\" is expected to be ";
+			if (o === undefined) {
+				throw mes + " not equal UNDEFINED.";
+			}
+
 			switch (as[idx]) {
 				case 'a':
 					if (!o instanceof Array) {

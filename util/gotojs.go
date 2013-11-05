@@ -5,7 +5,7 @@ import (
 	"os"
 	"fmt"
 	"io/ioutil"
-	. "gotojs"
+	. "github.com/sebkl/gotojs"
 )
 
 func printUsage() {

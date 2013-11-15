@@ -41,7 +41,7 @@ var {{.NS}} = {{.NS}} || {
 	
 {{.NS}}.TYPES.Proxy.prototype = {
 	/*Methods */
-	constructor: {{.NS}}.Proxy,
+	constructor: {{.NS}}.TYPES.Proxy,
 	call: function(i,m,args) {
 {{if .BU}}
 		var url ="{{.BU}}/"+i+"/"+m;

@@ -46,7 +46,9 @@ ${GOPATH}/bin/util sample ${GOPATH}/www
 Please keep in mind, that the example application `${GOPATH}/www/app.go` is intended to show some features. After playing around with it you should create your own !
 
 ## Documentation
-The go documentation of the gotojs package is complete and also some additional examples, so its worth having a look.
+The go documentation of the gotojs package is complete and includes some additional examples, so its worth having a look.
+it can be viewed [at godoc.org](http://godoc.org/github.com/sebkl/gotojs) or once downloaded within your local go environment:
+
 ```
 cd ${GOPATH}
 godoc -http=:8080

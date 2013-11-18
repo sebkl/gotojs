@@ -61,7 +61,7 @@ const (
 	Template= "binding.js"
 	InterfaceTemplate= "interface.js"
 	MethodTemplate= "method.js"
-	DefaultNamespace = "PROXY"
+	DefaultNamespace = "GOTOJS"
 	DefaultContext = "/gotojs"
 	//DefaultEnginePath = "_engine.js"
 	DefaultListenAddress = "localhost:8080"
@@ -116,6 +116,10 @@ type incomingMessage struct {
 type outgoingMessage struct {
 	CRID string
 	Data interface{}
+}
+
+type errorMessage struct {
+	Error string
 }
 
 type cache struct {
@@ -253,10 +257,10 @@ func (b *Frontend) loadLibraries() int{
 			}
 
 		} else {
-			log.Println("Faild to retrieve directory info of library directory. Ignoring. %s",err.Error())
+			log.Printf("Faild to retrieve directory info of library directory. Ignoring. %s",err.Error())
 		}
 	} else {
-		log.Println("Failed to read libraries directory. Ignoring. %s",err.Error())
+		log.Printf("Failed to read libraries directory. Ignoring. %s",err.Error())
 	}
 
 	if bl:=libbuf.Len(); bl > 0 {
@@ -491,8 +495,8 @@ func (f *Frontend) Start(args ...string) error {
 	f.httpd = &http.Server{
 		Addr:		addr,
 		Handler:	f.mux,
-		ReadTimeout:	1 * time.Second,
-		WriteTimeout:	2 * time.Second,
+		ReadTimeout:	5 * time.Second,
+		WriteTimeout:	10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
@@ -528,12 +532,22 @@ func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	defer func() {
 		if re:=recover();re!=nil {
 			http.Error(w,"",http.StatusInternalServerError)
-			log.Printf("[%s][%s] %s FAILED: %s",r.Method,r.URL.Path,re)
-			panic(re)
+			log.Printf("[%s] %s FAILED: %s",r.Method,r.URL.Path,re)
+
+			m := errorMessage{Error:"Unknown"}
+
+			// Check if panic is an error message 
+			v,ok := re.(string)
+			if ok {
+				m.Error = v
+			}
+
+			b,_ := json.Marshal(m)
+			w.Write(b)
+			//panic(re)
 		} else {
 			f.accessLog(w,r)
 		}
-
 	}()
 
 	switch r.Method {
@@ -555,13 +569,13 @@ func (f *Frontend) processCall(in io.Reader, out io.Writer,context *HTTPContext)
 	var b []byte
 	var m incomingMessage
 	defer func() {
-		log.Printf("[CALL] %s.%s(%s) => %s",m.Interface,m.Method,"...",string(b))
+		log.Printf("[CALL] %s.%s(%s) => %d bytes",m.Interface,m.Method,"...",len(b))
 	}()
 	dec:=json.NewDecoder(in)
 	if err := dec.Decode(&m); err != nil{
-		return err
+		return fmt.Errorf("Could not parse JSON parameter: %s",err.Error())
 	}
-	//ret := f.Invoke(m.Interface,m.Method,m.Data...)
+
 	ret := f.InvokeI(m.Interface,m.Method,NewI(context),m.Data...)
 	o := outgoingMessage{
 		CRID: m.CRID,

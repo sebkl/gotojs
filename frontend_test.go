@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"fmt"
 	"errors"
+	"encoding/json"
+	"net/http"
 	. "gotojs"
 )
 
@@ -179,5 +181,17 @@ func TestDynamicHTTPContextInjection(t *testing.T) {
 		t.Logf(out)
 		t.Errorf("HTTP Context Injection failed.")
 	}
+}
+
+func TestError(t *testing.T) {
+	buf := bytes.NewBufferString("{'abc':'def'}")
+	resp,_ := http.Post("http://localhost:8786/gotojs/TestServer/SetAndGetParam", "test/plain", buf)
+	o := struct {Error string}{}
+	dec:=json.NewDecoder(resp.Body)
+	if err := dec.Decode(&o); err != nil{
+		t.Errorf("Could not decode error message: %s",err.Error())
+	}
+	t.Logf("Message received: %s",o.Error)
+
 }
 

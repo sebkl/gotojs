@@ -1,10 +1,9 @@
 # gotojs
-Package gotojs offers a library for **exposing go-interfaces as Javascript proxy objects**.   
+Package gotojs offers a library for exposing go-interfaces as Javascript proxy objects.   
 Therefore package gotojs assembles a JS engine which creates proxy objects as JS code and forwards the calls to them via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
 
 ## Requirements
 * go version 1.1.1
-**Recommended for unit testing only:**
 * node.js version v0.10.20
 * npm version 1.3.11
 * node.js module jquery@1.8.3
@@ -37,12 +36,11 @@ Next, fetch the gotojs package:
 
 ```
 go get github.com/sebkl/gotojs
-go get github.com/sebkl/gotojs/util
 ```
 
 and create a sample application tree:
 ```
-${GOPATH}/bin/util example ${GOPATH}/www
+${GOPATH}/bin/util sample ${GOPATH}/www
 ```
 
 Please keep in mind, that the example application `${GOPATH}/www/app.go` is intended to show some features. After playing around with it you should create your own !
@@ -50,6 +48,7 @@ Please keep in mind, that the example application `${GOPATH}/www/app.go` is inte
 ## Documentation
 The go documentation of the gotojs package is complete and includes some additional examples, so its worth having a look.
 it can be viewed [at godoc.org](http://godoc.org/github.com/sebkl/gotojs) or once downloaded within your local go environment:
+
 ```
 cd ${GOPATH}
 godoc -http=:8080

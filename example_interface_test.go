@@ -19,7 +19,7 @@ func (s *Service) Hello(name string) string {
 
 func ExampleFrontend_interface() {
 	// Initialize the frontend.
-	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8790/gotojs"})
+	frontend := NewFrontend()
 
 	service := Service{name: "TestService"}
 
@@ -27,10 +27,10 @@ func ExampleFrontend_interface() {
 	frontend.ExposeInterface(service)
 
 	// Start the server is seperate go routine in parallel.
-	go func() {log.Fatal(frontend.Start())}()
+	go func() {log.Fatal(frontend.Start("localhost:8790"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
-	fmt.Println( Post("http://localhost:8790/gotojs/","Service","Hello","TestEngine") )
+	fmt.Println( post("http://localhost:8790/gotojs/","Service","Hello","TestEngine") )
 
 	// Output: 
 	// {"CRID":"TEST","Data":"Hello TestEngine, how are you ? Regards, TestService."}

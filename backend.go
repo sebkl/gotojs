@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"log"
 	"strings"
-	"errors"
-	"fmt"
 )
 
 const (
@@ -13,55 +11,130 @@ const (
 	DefaultFunctionName string = "f"
 )
 
-// Method is a concrete method binding. It maps a interface and method name to a go object's method.
-type Method struct {
+// Filter is a filter function that receives, the binding which is currently being invoked and the 
+// Injection objects of the environment. It returns true if the call and filter chain may proceed.
+// If it returns false, the request has been prohabited or already answered and neither a further
+// filter nor the real method call will be invoked.
+type Filter func (*Binding,Injections) bool
+
+// Binding is a concrete method binding. It maps a interface and method name to a go object's method.
+// The receiver is stored and in case of a method invocation, the original receiver will be 
+// passed while the method is called. Besides this the a holds the information, which filter are
+// active, which parameter needs to be injected by the InvokeI call or need to be registered as singletons..
+type Binding struct {
 	methodName string
 	interfaceName string
 	methodNum int
-	injections map[int]Injection
+	injections map[int]InjectionType
+	singletons Injections
 	i interface{}
+	filters []Filter
+	backend *Backend
 }
+
+//Bindings is a list of concrete method bindings.
+type Bindings []*Binding
 
 // Interface represents an interface binding which consists of a set of methods or functions.
-type Interface map[string]Method
+type Interface map[string]*Binding
 
-// Binding represents a binding container which constists of a set of bound interfaces.
-type Binding map[string]Interface
+// Interfaces represents a list or slice of Interfaces including all its bindings.
+type Interfaces []Interface
 
-// Injection is an injection reference that is used to maintain the target type.
-type Injection struct{
-	Type reflect.Type
-}
+// BindingContainer represents a container which consists of a set of interface and its bindings
+type BindingContainer map[string]Interface
 
-// Injections is a container of injection objects.
-type Injections []interface{}
+// InjectionType is an injection reference that is used to maintain the target type.
+type InjectionType reflect.Type
+
+// Injections is a container of injection objects sorted by their type.
+type Injections map[InjectionType]interface{}
 
 // Backend consits of the binding container as well as some administrative attributes like revision and injection references.
 type Backend struct {
-	Binding
-	injections map[reflect.Type]Injection
+	BindingContainer
+	globalInjections Injections
 	revision uint64
 }
 
-//NewBackend is a constructor for the Binding data structure.
+//NewBackend is a constructor for the BindingContainer data structure.
 func NewBackend() (Backend) {
-	return Backend{ Binding: make(Binding), injections: make(map[reflect.Type]Injection) }
+	return Backend{
+		BindingContainer: make(BindingContainer),
+		globalInjections: make(Injections)}
 }
 
+// AddInjection adds a singleton injection object for the given binding and declares its type
+// as injection object. It can calso be used to declare a type and in the same step define a 
+// default singleton which will be injected in case no further object of this type will is 
+// provided for InvokeI calls.
+func (m *Binding) AddInjection(i interface{}) *Binding{
+	it:= reflect.TypeOf(i)
+	m.singletons[it] = i
 
-// SetupInjection declares a type that needs to be injected. This needs to be done before an interface or single function
-// taking this type as a parameter is exposed.
-func (b *Backend) SetupInjection(i interface{}) {
-	t:= reflect.TypeOf(i)
-	b.injections[t] = Injection{Type: t}
-	//log.Printf("New injection for type name: \"%s\".",t.Name())
-	//TODO: Update existing bindings !
+	t := reflect.TypeOf(m.i)
+	v := reflect.ValueOf(m.i)
+
+	var ac int
+	var meth reflect.Value
+	if m.methodNum >= 0 {
+		ac = v.Method(m.methodNum).Type().NumIn()
+		meth = t.Method(m.methodNum).Func
+	} else {
+		ac = t.NumIn()
+		meth = v
+	}
+
+	for i:=0;i<ac;i++ {
+		at := meth.Type().In(i)
+		if at == it {
+			m.injections[i] = at
+		}
+	}
+	return m
 }
 
+// AddInjection is a convenience method to AddInjection of type Binding.
+func (bs Bindings) AddInjection(i interface{}) Bindings {
+	for _,b := range bs {
+		b.AddInjection(i)
+	}
+	return bs
+}
+
+// SetupGlobaleIjection declares a type that will always be injected.
+// This applies for both existing bindings as well as new bindings.
+func (b Backend) SetupGlobalInjection(i interface{}) {
+	t := reflect.TypeOf(i)
+	b.globalInjections[t] = i
+	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
+}
+
+// addGlobalInjection adds the global injection types to the given binding.
+func (b *Binding) addGlobalInjections() {
+	for _,v := range b.backend.globalInjections {
+		b.AddInjection(v)
+	}
+}
+
+// NewBinding creates a new binding object that is associated with the given backend.
+// All existing global Injections will be added to this binding.
+func (b* Backend) NewBinding(i interface{},x int, in,mn string) (*Binding) {
+	p := Binding{
+		i: i,
+		methodNum: x,
+		methodName: mn,
+		interfaceName: in,
+		backend: b,
+		singletons: make(Injections),
+		injections: make(map[int]InjectionType)}
+	p.addGlobalInjections()
+	return &p
+}
 
 // Expose an entire interface. All methods of the given interface will be exposed. THe name of the
 // exposed interface is either taken from type name or could be specified as additional name parameter.
-func (b *Backend) ExposeInterface(i interface{},name ...string) (ret int) {
+func (b *Backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 	// Try to get object/receiver name from interface.
 	k:=reflect.ValueOf(i).Type().Kind();
 
@@ -91,7 +164,7 @@ func (b *Backend) ExposeInterface(i interface{},name ...string) (ret int) {
 }
 
 // ExposeFunction exposes a single function. No receiver is required for this binding.
-func (b *Backend) ExposeFunction(f interface{}, name ...string) (ret int) {
+func (b *Backend) ExposeFunction(f interface{}, name ...string) (ret Bindings) {
 	v:= reflect.ValueOf(f)
 	if v.Kind() != reflect.Func {
 		log.Fatalf("Parameter is not a function. %s/%s",v.Kind().String(),reflect.Func.String())
@@ -108,58 +181,93 @@ func (b *Backend) ExposeFunction(f interface{}, name ...string) (ret int) {
 		fname = name[1]
 	}
 
-	//TODO: make clean and move to ExportFunction method of Binding
-	_, found := b.Method(iname,fname)
+	//TODO: make clean and move to ExportFunction method of BindingContainer
+	_, found := b.Binding(iname,fname)
 	if found {
 		log.Printf("Function \"%s\" already exposed for interface \"%s\". Overwriting.",fname,iname)
 	}
-	pm:=Method{ i: f, methodNum: -1,methodName: fname,interfaceName: iname}
-	b.UpdateInjection(&pm)
-	b.Binding[iname][fname] = pm
+
+	pm:= b.NewBinding(f,-1,iname,fname)
+	b.BindingContainer[iname][fname] = pm
 	b.revision++
-	return 1
+	ret = make(Bindings,1)
+	ret[0] = pm
+	return
 }
 
-// Method searches a concrete binding by the given interface and method name.
-func (b Binding) Method(i string, mn string) (r Method, found bool) {
+// If sets a filter for the given binding. See type Filter for more information.
+func (b *Binding) If(f Filter) *Binding {
+	b.filters = append(b.filters,f)
+	return b
+}
+
+// ClearFilter removes all filters for the given binding.
+func (b* Binding) ClearFilter() *Binding {
+	b.filters = make([]Filter,0)
+	return b
+}
+
+// If sets a filter for all given binding. See type Filter for more information.
+func (bs Bindings) If(f Filter) Bindings{
+	for _,b := range bs {
+		b.If(f)
+	}
+	return bs
+}
+
+// ClearFilter remove all filters from the given bindings.
+func (bs Bindings) ClearFilter() Bindings {
+	for _,b := range bs {
+		b.ClearFilter()
+	}
+	return bs
+}
+
+// Name returns the name of the given Binding. This is a concatenation of 
+// the interface name, a "." seperator and the method name.
+func (b *Binding) Name() string {
+	return b.interfaceName + "." + b.methodName
+}
+
+// Binding searches a concrete binding by the given interface and method name.
+func (b BindingContainer) Binding(i string, mn string) (r *Binding, found bool) {
 	im, found := b[i];
 	if !found {
-		im = make(map[string]Method)
+		im = make(map[string]*Binding)
 		b[i] = im
 	}
 
 	r,found = b[i][mn]
 	if !found {
-		r = Method{}
+		r = &Binding{}
 		b[i][mn] = r
 	}
 	return
 }
 
-// Method is a convenience method to retrieve the method of a interface. It panics if the method does not exist.
-func (i Interface) Method(n string) (r Method) {
+// Binding is a convenience method to retrieve the method of a interface. It panics if the method does not exist.
+func (i Interface) Binding(n string) (r *Binding) {
 	r, found := i[n]
 	if !found{
-		log.Fatalf("Method \"%s\" not found for interface.",n)
+		log.Fatalf("Binding \"%s\" not found for interface.",n)
 	}
 	return
 }
 
-
 // Remove an entire interface from the binding container identified by the interface name.
-func (b Binding) RemoveInterface(i string) {
+func (b BindingContainer) RemoveInterface(i string) {
 	delete(b,i)
 }
 
-// REmoveMethod removes a single method from the binding container identified by the interface and method name.
-func (b Binding) RemoveMethod(i,m string) {
+// REmoveBinding removes a single method from the binding container identified by the interface and method name.
+func (b BindingContainer) RemoveBinding(i,m string) {
 	delete(b[i],m)
 }
 
-
-// Interfaces retrieves all bound interface names.
-func (b Binding) Interfaces() (keys []string) {
-	keys = make([]string,len(b));
+// InterfaceNames retrieves all bound interface names.
+func (b BindingContainer) InterfaceNames() (keys []string) {
+	//TODO: use Interfaces() here.
+	keys = make([]string,len(b))
 	i:=0
 	for k,_ := range ( b ) {
 		keys[i] = k
@@ -168,8 +276,19 @@ func (b Binding) Interfaces() (keys []string) {
 	return
 }
 
+// Interfaces returns a list of all interface including its bindings.
+func (b BindingContainer) Interfaces() (ret Interfaces) {
+	ret = make(Interfaces,len(b))
+	i:=0
+	for _,v := range b {
+		ret[i] = v
+		i++
+	}
+	return
+}
+
 //Interface is a convenience method to retrieve an interface. It panics if the interface does not exist.
-func (b Binding) Interface(name string) (ret Interface) {
+func (b BindingContainer) Interface(name string) (ret Interface) {
 	ret,found := b[name]
 	if !found {
 		log.Fatalf("Interface \"%s\" does not exist.",name)
@@ -177,9 +296,8 @@ func (b Binding) Interface(name string) (ret Interface) {
 	return
 }
 
-
-// Methods retreives all bound methods or functions of the given interface name.
-func (b Binding) Methods(i string) (methods []string) {
+// BindingNames retreives all bound methods or functions names of the given interface.
+func (b BindingContainer) BindingNames(i string) (methods []string) {
 	mmap, found :=  b[i]
 	if found {
 		methods = make([]string,len(mmap))
@@ -192,54 +310,86 @@ func (b Binding) Methods(i string) (methods []string) {
 	return
 }
 
+// Bindings returns all method bindings of the given container.
+func (i Interface) Bindings() (ret Bindings) {
+	ret = make(Bindings,len(i))
+	c := 0
+	for _,v := range i {
+		ret[c] = v
+		c++
+	}
+	return
+}
+
+// Bindings returns all method bindings of the given container.
+func (b BindingContainer) Bindings() (ret Bindings) {
+	is := b.Interfaces()
+	for _,v := range is {
+		bdns := v.Bindings()
+		ret = append(ret,bdns...)
+	}
+	return
+}
 
 // Invoke a bound method or function of the given interface and method name.
-func (b Binding) Invoke(i,m string, args ...interface{}) interface{} {
+func (b BindingContainer) Invoke(i,m string, args ...interface{}) interface{} {
 	return b.InvokeI(i,m,nil,args...)
 }
 
-
 // InvokeI is a convenience method for invoking methods/function without prior discovery.
-func (b Binding) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
-	r,found := b.Method(i,m)
+func (b BindingContainer) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
+	r,found := b.Binding(i,m)
 	if found {
 		return r.InvokeI(inj,args...)
 	} else {
-		log.Fatalf("Method \"%s.%s\" not found.",i,m)
+		log.Fatalf("Binding \"%s.%s\" not found.",i,m)
 	}
 	return nil
 }
 
-
 // Invoke a bound method or function with the given parameters.
-func (r *Method) Invoke(args ...interface{}) (ret interface{}) {
+func (r *Binding) Invoke(args ...interface{}) (ret interface{}) {
 	return r.InvokeI(nil,args...)
 }
 
-
-// Lookup whether the injections contain an object of the given type.
-// Returns the object and nil as error if found. If not found the return object is nil
-// and error is set accordingly.
-func (i Injections) findType(t reflect.Type) (interface{},error) {
-	if i == nil {
-		return nil,errors.New(fmt.Sprintf("Empty injections list."))
+// NewI constructs a new Injections container. Each parameter is part of the Injections container.
+func NewI(args ...interface{}) (Injections) {
+	ret := make(Injections)
+	for _,v := range args {
+		ret[reflect.TypeOf(v)] = v
 	}
-	for _,o := range []interface{}(i) {
-		if reflect.TypeOf(o) == t {
-			return o,nil;
+	return ret
+}
+
+
+// Add adds an injection object to the list of injections.
+func (inj Injections) Add(i interface{}) {
+	inj[reflect.TypeOf(i)] = i
+}
+
+// MergeInjections merges multiple Injetions. The later ones overwrite the prveiouse ones.
+func MergeInjections(inja ...Injections) (ret Injections) {
+	ret = make(Injections)
+	for _,is := range inja{
+		for it,io := range is {
+			ret[it] = io
 		}
 	}
-	return nil,errors.New(fmt.Sprintf("Injection type %s not found.",t.Name()))
+	return
 }
-
-// NewI constructs a new Injections object. Each parameter is part of the Injections object.
-func NewI(args ...interface{}) (Injections) {
-	return args
-}
-
 
 // Invoke a bound method or function. Given injection objects are injected on demand.
-func (r *Method) InvokeI(inj Injections,args ...interface{}) (ret interface{}) {
+func (r *Binding) InvokeI(ri Injections,args ...interface{}) (ret interface{}) {
+	//Merge Injections. Runtime objects overwrite singletons.
+	inj := MergeInjections(r.singletons,ri)
+
+	// Involve filters first, because Injection objects may be passed by filters
+	for _,f := range r.filters {
+		if !f(r,inj) {
+			return nil
+		}
+	}
+
 	t := reflect.TypeOf(r.i)
 	v := reflect.ValueOf(r.i)
 	l := len(args)
@@ -254,11 +404,10 @@ func (r *Method) InvokeI(inj Injections,args ...interface{}) (ret interface{}) {
 	if (r.methodNum >= 0) {
 		// Binding is a interface with reference to the method
 		off=1 // offset because of receiver 
-		//TODO: fix this reflection fuckup, maybe a bug in relect pkg
-		// The data type structure of go's reflection implementation is either not understood or simply weired.
+		//TODO: fix this reflection fuckup.
 		meth = t.Method(r.methodNum).Func
 
-		//ac = v.Method(r.methodNum).Type().NumIn() // Argument count without receiver ?!?
+		//ac = v.Binding(r.methodNum).Type().NumIn() // Argument count without receiver ?!?
 		ac = meth.Type().NumIn() // Argument count including recceiver ?!?
 		va = make([]reflect.Value,ac)
 		va[0] = v // Set receiver as first param of real call
@@ -279,12 +428,12 @@ func (r *Method) InvokeI(inj Injections,args ...interface{}) (ret interface{}) {
 		at:= mt.In(fx) // Type object of the current parameter
 		var iav reflect.Value  // final value to be assigned to the call
 		// Check if this parameter needs to be injected
-		if val,ok:= r.injections[fx]; ok {
-			if in,ok := inj.findType(val.Type); ok == nil {
+		if _,ok:= r.injections[fx]; ok {
+			if in,ok := inj[at]; ok { // a object of type at is provided by InvokeI call
 				iav = reflect.ValueOf(in).Convert(at)
 				va[fx] = reflect.ValueOf(in).Convert(at)
 			} else {
-				log.Fatal(ok.Error())
+				log.Fatalf("Injection for type \"%s\" not found.",at)
 			}
 
 			ic++ // skip one input param
@@ -306,7 +455,10 @@ func (r *Method) InvokeI(inj Injections,args ...interface{}) (ret interface{}) {
 		log.Fatalf("Argument count does not match for method \"%s\". %d/%d.",r.methodName,ac,(l+ic+off))
 		return
 	}
+
+
 	iret := meth.Call(va) // Call with/without receiver but consider injected objects.
+
 	/* Check if return argument exists or not. If not nil is returned as interface{} */
 	if len(iret) > 0 {
 		ret = iret[0].Interface() // Convert return argument to interface{}
@@ -316,35 +468,12 @@ func (r *Method) InvokeI(inj Injections,args ...interface{}) (ret interface{}) {
 	return
 }
 
-// UpdateInjection checks if this method needs an injection. If yes the binding will be updated with proper references.
-func (b *Backend) UpdateInjection(m *Method) {
-	m.injections = make(map[int]Injection)
-
-	t := reflect.TypeOf(m.i)
-	v := reflect.ValueOf(m.i)
-
-	var ac int
-	var meth reflect.Value
-	if m.methodNum >= 0 {
-		ac = v.Method(m.methodNum).Type().NumIn()
-		meth = t.Method(m.methodNum).Func
-	} else {
-		ac = t.NumIn()
-		meth = v
-	}
-
-	for i:=0;i<ac;i++ {
-		at := meth.Type().In(i)
-		if val,ok := b.injections[at]; ok {
-			m.injections[i] = val
-		}
-	}
-}
-
 // Internal function that oursources the actual exposing code from the ExposeInterface method.
-func (b *Backend) exposeInterfaceTo(i interface{}, n string) (c int) {
+func (b *Backend) exposeInterfaceTo(i interface{}, n string) (ret Bindings) {
 	t := reflect.TypeOf(i)
-	ow := 0
+	ow := 0 // amount of overwritten methods.
+	c:= 0 // final amount of exposed methods.
+	ret = make(Bindings,t.NumMethod())
 	for x:=0;x < t.NumMethod();x++ {
 		mt := t.Method(x)
 		/* Sanity check on method signature: */
@@ -355,16 +484,18 @@ func (b *Backend) exposeInterfaceTo(i interface{}, n string) (c int) {
 		}
 
 		mn := mt.Name
-		_, found := b.Method(n,mn)
+		_, found := b.Binding(n,mn)
 		if found {
 			ow++
-			log.Printf("Method \"%s\" already exposed for interface \"%s\". Overwriting.",mn,n)
+			log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,n)
 		}
-		pm := Method{ i: i, methodNum: x,methodName: mn, interfaceName: n}
-		b.UpdateInjection(&pm)
-		b.Binding[n][mn] = pm
+		pm := b.NewBinding(i,x,n,mn)
+		b.BindingContainer[n][mn] = pm
+
+		//Compile return slice
+		ret[c] = pm
 		c++;
 	}
 	log.Printf("Added %d methods to interface \"%s\". %d of %d have been overwritten.",c,n,ow,c)
-	return
+	return ret[:c]
 }

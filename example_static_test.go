@@ -11,7 +11,7 @@ import (
 
 func ExampleFrontend_static() {
 	// Initialize the frontend.
-	frontend := NewFrontend(F_DEFAULT ,map[int]string{P_EXTERNALURL: "http://localhost:8788/gotojs"})
+	frontend := NewFrontend()
 
 	// Define the content.
 	index:=`
@@ -26,7 +26,7 @@ func ExampleFrontend_static() {
 	frontend.HandleStatic("/",index,"text/html")
 
 	// Start the server.
-	go func() {log.Fatal(frontend.Start())}()
+	go func() {log.Fatal(frontend.Start("localhost:8788"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

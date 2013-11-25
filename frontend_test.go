@@ -22,10 +22,12 @@ var $ = require("jquery");
 var frontend *Frontend
 
 func TestInitialization(t *testing.T) {
-	frontend = NewFrontend(F_VALIDATE_ARGS | F_ENABLE_FILESERVER,map[int]string{
-		P_NAMESPACE: "PROXY",
-		P_EXTERNALURL: "http://localhost:8786/gotojs",
-		P_BASEPATH: "../.."})
+	frontend = NewFrontend(
+		Parameters{
+			P_FLAGS: Flag2Param(F_VALIDATE_ARGS | F_ENABLE_ACCESSLOG),
+			P_NAMESPACE: "PROXY",
+			P_EXTERNALURL: "http://localhost:8786/gotojs",
+			P_BASEPATH: "../.."})
 
 	frontend.ExposeInterface(MyTestService)
 	go func() {
@@ -105,7 +107,7 @@ func TestRemoveInterface(t *testing.T) {
 		t.Errorf("Interface \"%s\" did not exist.","X")
 	}
 	frontend.RemoveInterface("X")
-	ia := frontend.Interfaces()
+	ia := frontend.InterfaceNames()
 	if ContainsS(ia,"X") {
 		t.Errorf("Interface \"%s\" still exists after removal.","X")
 	}
@@ -183,7 +185,7 @@ func TestDynamicHTTPContextInjection(t *testing.T) {
 	}
 }
 
-func TestError(t *testing.T) {
+func TestJSONError(t *testing.T) {
 	buf := bytes.NewBufferString("{'abc':'def'}")
 	resp,_ := http.Post("http://localhost:8786/gotojs/TestServer/SetAndGetParam", "test/plain", buf)
 	o := struct {Error string}{}
@@ -195,3 +197,40 @@ func TestError(t *testing.T) {
 
 }
 
+func TestAutoInjectionFilter(t *testing.T) {
+	fakeHeader := "text/fake"
+	// Make sure to clear all filters after the test is completed.
+	defer frontend.Bindings().ClearFilter()
+
+	frontend.Bindings().If(AutoInjectF(func(inj Injections,c *HTTPContext, b *Binding) bool {
+		return len(inj) > 0 && b.Name() == "TestService.SetParam"
+	})).If(AutoInjectF(func(c *HTTPContext) bool {
+		return c.Request.Method == "POST" && c.Request.Header.Get("Content-Type") == fakeHeader
+	}))
+
+	// Do a quick call to SetParam
+	buf := bytes.NewBufferString("{\"Interface\":\"TestService\",\"Method\":\"SetParam\",\"Data\": [1000]}")
+	_,_ = http.Post("http://localhost:8786/gotojs/TestServer/SetParam", fakeHeader, buf)
+
+	frontend.Bindings().ClearFilter()
+	res := frontend.Invoke("TestService","GetParam")
+	if res != 1000 {
+		t.Errorf("Filter has forbidden access. %d/%d",res,1000)
+	}
+}
+
+
+func TestSession (t *testing.T) {
+	key := GenerateKey(16)
+	s := NewSession()
+	s.Set("testkey","testval")
+	c := s.Cookie("gotojs","/",key)
+	t.Logf("Cookie: %s=%s",c.Name,c.Value)
+	ns := SessionFromCookie(c,key)
+	for k,v:= range ns.Properties {
+		t.Logf("%s: %s",k,v)
+	}
+	if ns.Get("testkey") != "testval" {
+		t.Errorf("Session could not be restored.")
+	}
+}

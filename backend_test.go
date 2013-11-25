@@ -2,7 +2,8 @@ package gotojs_test
 import (
 	"testing"
 	. "gotojs"
-	//"log"
+	"log"
+	//"fmt"
 )
 
 type TestService struct {
@@ -18,8 +19,8 @@ var MyTestService2 = TestService2{param2: 0}
 var backend = NewBackend()
 
 func (t *TestService) SetAndGetParam(p int)  int	{ /*log.Printf("Invoked on %p",t); */ t.param1 = p; return t.param1}
-func (t *TestService) GetParam() int			{ return t.param1 }
-func (t *TestService) SetParam(p int)			{ t.param1 = p}
+func (t *TestService) GetParam() int			{ log.Printf("TestService.GetParam() @ %p",t); return t.param1 }
+func (t *TestService) SetParam(p int)			{ log.Printf("TestService.SetParam(%d) @ %p\n",p,t); t.param1 = p}
 func (t TestService)  SetAndGetParam2(p int)  int	{ t.param1 = p; return t.param1}
 func (t *TestService) InvalidMethod1(p int)  (int,int)	{ return p,0}
 func (t *TestService) InvalidMethod2()  (int,int)	{ return 0,0}
@@ -32,7 +33,7 @@ const (
 )
 
 func TestBasic(t *testing.T) {
-	if backend.ExposeInterface(MyTestService) == 0 {
+	if len(backend.ExposeInterface(MyTestService)) == 0 {
 		t.Errorf("Type could not be recognized by Exposer.")
 	} else {
 		t.Logf("Interface successfully exposed.");
@@ -42,8 +43,8 @@ func TestBasic(t *testing.T) {
 	MyTestService.SetParam(42)
 }
 
-func TestInterfaces(t *testing.T) {
-	i := backend.Interfaces()
+func TestInterfaceNames(t *testing.T) {
+	i := backend.InterfaceNames()
 	for _,v:= range i {
 		t.Logf("Found interface \"%s\".",v)
 	}
@@ -60,7 +61,7 @@ func TestInterfaces(t *testing.T) {
 }
 
 func TestMethods(t *testing.T) {
-	i := backend.Methods(backend.Interfaces()[0])
+	i := backend.BindingNames(backend.InterfaceNames()[0])
 
 	for _,v:= range i {
 		t.Logf("Found method \"%s\".",v)
@@ -108,9 +109,25 @@ func TestInvoke(t *testing.T) {
 	}
 }
 
+func TestBasicSetter(t *testing.T) {
+	backend.Invoke("TestService","SetParam",109)
+	ret := backend.Invoke("TestService","GetParam")
+
+	if ret != 109 {
+		t.Errorf("Simple setter failed. %d/%d",ret,109)
+	}
+
+	MyTestService.SetParam(108)
+	ret = backend.Invoke("TestService","GetParam")
+	if ret != 108 {
+		t.Errorf("Simple setter failed: %d/%d",ret,108)
+	}
+
+}
+
 func TestExposeNamedInterface(t *testing.T) {
-	a := backend.ExposeInterface(MyTestService2)
-	b := backend.ExposeInterface(MyTestService2,"TestService")
+	a := len(backend.ExposeInterface(MyTestService2))
+	b := len(backend.ExposeInterface(MyTestService2,"TestService"))
 	if !((a == b) && (a == 1)) {
 		t.Errorf("Additional interface exposing failed. %d,%d /%d",a,b,1)
 	}
@@ -119,7 +136,7 @@ func TestExposeNamedInterface(t *testing.T) {
 		t.Errorf("Additional interface exposing failed. New Interface is mussing.")
 	}
 
-	if len(backend.Methods("TestService")) != (validMethodCount2 + validMethodCount) {
+	if len(backend.BindingNames("TestService")) != (validMethodCount2 + validMethodCount) {
 		t.Errorf("Additional interface exposing failed. New Methods are missing.")
 	}
 }
@@ -129,6 +146,18 @@ func TestExposeFunction(t *testing.T) {
 		return i
 	}
 	backend.ExposeFunction(f,"TestService","f")
+}
+
+func TestInterfaceAndBindingCount(t* testing.T) {
+	is := backend.Interfaces();
+	if len(is) != 2 {
+		t.Errorf("Invalid count of Interfaces: %d/%d",len(is),2)
+	}
+
+	bs := backend.Bindings();
+	if len(bs) != 7 {
+		t.Errorf("Invalid count of total bindings: %d/%d",len(bs),7)
+	}
 }
 
 func TestInvokeFunction(t *testing.T) {
@@ -150,7 +179,7 @@ func TestDynamicInjection(t *testing.T) {
 	}
 
 	tc:= TestContext{val: "INITIAL"}
-	backend.SetupInjection(&tc)
+	backend.SetupGlobalInjection(&tc)
 	backend.ExposeFunction(f,"IService","testMe")
 
 	tc.val = "ASSERTME"
@@ -197,8 +226,136 @@ func TestDynamicInjectionSimilarParameter(t *testing.T) {
 
 func TestInterfaceRemoval(t *testing.T) {
 	backend.RemoveInterface("IService")
-	if ContainsS(backend.Interfaces(),"IService") {
+	if ContainsS(backend.InterfaceNames(),"IService") {
 		t.Errorf("Interface \"%s\" still exists after removal.","IService")
 	}
 }
+
+func TestSimpleFilterChain(t *testing.T) {
+	works := false
+
+	// Make sure to clear all filters after the test is completed.
+	defer backend.Bindings().ClearFilter()
+
+	_ = backend.Bindings().If(func(b *Binding,inj Injections) bool {
+		return b.Name() == "TestService.GetParam"
+	}).If(func(b* Binding, inj Injections) bool {
+		works = true
+		return works
+	})
+
+	_ = backend.Invoke("TestService","GetParam")
+
+	if !works {
+		t.Errorf("Filter was not invovled.")
+	}
+}
+
+func TestSingletonInjection(t * testing.T) {
+	type TestType struct {
+		val int
+	}
+
+	mytt := TestType{42}
+
+	backend.ExposeFunction(func(tt *TestType) int {
+		return tt.val;
+	},"TT","Get")
+
+
+	backend.ExposeFunction(func(tt *TestType,v int) {
+		tt.val = v
+	},"TT","Set")
+
+	defer backend.RemoveInterface("TT")
+
+	backend.Interface("TT").Bindings().AddInjection(&mytt)
+
+	ret := backend.Invoke("TT","Get")
+	if ret != 42 {
+		t.Errorf("Initial value incorrect: %d/%d",ret,42)
+	}
+
+	mytt.val = 43
+	ret = backend.Invoke("TT","Get")
+	if ret != 43 {
+		t.Errorf("Value incorrect: %d/%d",ret,43)
+	}
+
+	backend.Invoke("TT","Set",44)
+	ret = mytt.val
+	if ret != 44 {
+		t.Errorf("Value incorrect: %d/%d",ret,44)
+	}
+
+	ret = backend.InvokeI("TT","Get",NewI(&TestType{45}))
+	if ret != 45 {
+		t.Errorf("Value incorrect: %d/%d",ret,45)
+	}
+
+	mytt.val = 46
+	backend.InvokeI("TT","Set",NewI(&TestType{45}),47)
+	ret = mytt.val
+	if ret != 46 {
+		t.Errorf("Value incorrect: %d/%d",ret,46)
+	}
+}
+
+func TestPassInjection(t *testing.T) {
+	type TestType1 struct{
+		val1 int
+	}
+
+	type TestType2 struct {
+		val2 int
+	}
+
+	mytt1 := TestType1{1}
+	mytt2 := TestType2{2}
+
+	backend.ExposeFunction(func(tt *TestType2) int {
+		return tt.val2;
+	},"TT","Get")
+	defer backend.RemoveInterface("TT")
+
+	b := backend.Interface("TT").Bindings()
+
+	b.AddInjection(&mytt2) // Delcare type and assign singleton
+	b.AddInjection(&mytt1) // Declare type and assign singleton
+	b.If(AutoInjectF(func(tt1 *TestType1, inj Injections) bool {
+		if tt1.val1 == 1  {
+			tt2 := TestType2{3}
+			inj.Add(&tt2)
+		}
+		return true
+	}))
+
+	ret := backend.Invoke("TT","Get")
+	if ret != 3 {
+		t.Errorf("Injection passing failed: %d/%d",ret,3)
+	}
+}
+
+func TestNegativeFilterChain(t *testing.T) {
+	MyTestService.SetParam(0)
+	// Now SetParam still works
+	backend.Invoke("TestService","SetParam",17)
+
+	b,_ := backend.Binding("TestService","SetParam")
+	defer b.ClearFilter() // Make sure to remove filter after test.
+
+	b.If(func(b *Binding,inj Injections) bool {
+		return true // This one allows
+	}).If(func(b *Binding,inj Injections) bool {
+		return false // this one forbids
+	})
+
+	// This call is expected ot to be successful.
+	_ = backend.Invoke("TestService","SetParam",18)
+
+	if MyTestService.GetParam() != 17 {
+		t.Errorf("Filter failed. Call was successful. %d/%d",MyTestService.GetParam(),17)
+	}
+}
+
 

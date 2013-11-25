@@ -1,6 +1,7 @@
 package gotojs_test
 
 import(
+	"encoding/base64"
 	"testing"
 	. "gotojs"
 )
@@ -36,4 +37,22 @@ func TestAppend(t *testing.T) {
 		t.Errorf("Map append failed.")
 	}
 
+}
+
+
+func TestEncryption(t * testing.T) {
+	key := GenerateKey(16)
+	s := base64.StdEncoding.EncodeToString(GenerateKey(2000))
+
+	enc := Encrypt([]byte(s),key)
+
+	if string(enc) == s {
+		t.Errorf("Encryption failed: source equals encrypted")
+	}
+
+	dec := Decrypt(enc,key)
+
+	if s != string(dec) {
+		t.Errorf("Decryption failed: source does not match decrypted")
+	}
 }

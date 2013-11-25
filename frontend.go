@@ -6,9 +6,12 @@
 // using a transparent RPC service.
 //
 // This service includes the follwing features:
-//	- Injection of Objects (like a http context)
-//	- Automatic include of external and internal libaries while the engine is loaded.
-//	- Routing to internal fileserver that serves static content like images and html files.
+//
+// - Injection of Objects (like a http context)      
+//
+// - Automatic include of external and internal libaries while the engine is loaded.    
+//
+// - Routing to internal fileserver that serves static content like images and html files.   
 package gotojs
 
 import (
@@ -25,6 +28,9 @@ import (
 	"time"
 	"fmt"
 	"encoding/json"
+	"encoding/base64"
+	"strconv"
+	"compress/flate"
 )
 
 // Configuration flags.
@@ -33,12 +39,10 @@ const (
 	F_LOAD_LIBRARIES = 1<<0
 	F_LOAD_TEMPLATES = 1<<1
 	F_VALIDATE_ARGS = 1<<2
-	F_ENABLE_FILESERVER = 1<<3
-	F_ENABLE_ACCESSLOG = 1<<4
+	F_ENABLE_ACCESSLOG = 1<<3
 	F_DEFAULT =	F_LOAD_LIBRARIES |
 			F_LOAD_TEMPLATES |
 			F_VALIDATE_ARGS |
-			F_ENABLE_FILESERVER |
 			F_ENABLE_ACCESSLOG
 )
 
@@ -51,8 +55,9 @@ const (
 	P_CONTEXT = 4
 	P_LISTENADDR = 5
 	P_PUBLICCONTEXT = 6
+	P_APPLICATIONKEY = 7
+	P_FLAGS = 8
 )
-
 
 // Internally used constants and default values
 const (
@@ -69,6 +74,8 @@ const (
 	DefaultFileServerContext = "public"
 	DegaultExternalBaseURL = "http://" + DefaultListenAddress
 	DefaultBasePath = "."
+	DefaultCookieName = "gotojs"
+	DefaultCookiePath = "/gotojs"
 
 	tokenNamespace = "NS"
 	tokenInterfaceName = "IN"
@@ -95,8 +102,8 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Uintptr: 'i',
 	reflect.Float32: 'f',
 	reflect.Float64: 'f',
-	reflect.Complex64: 'f',
-	reflect.Complex128: 'f',
+	reflect.Complex64: '_',
+	reflect.Complex128: '_',
 	reflect.Array: 'a',
 	reflect.Chan: '_',
 	reflect.Func: '_',
@@ -130,7 +137,7 @@ type cache struct {
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
 // HTTP facade of "gotojs".
 type Frontend struct {
-	Backend //inherit from Binding and extend
+	Backend //inherit from BindingContainer and extend
 	template *template.Template
 	namespace string
 	context string
@@ -144,6 +151,116 @@ type Frontend struct {
 	publicDir string
 	publicContext string
 	fileServer http.Handler
+	key []byte
+}
+
+//Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
+var encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+
+//Parameter type allows to define mutliple configuration parameters.
+type Parameters map[int]string
+
+//Properties are generic string string maps used for a user session.
+type Properties map[string]string
+
+// Session represents a users session on server side. Basically
+// it consists of a set of properties.
+type Session struct {
+	Properties
+	dirty bool
+}
+
+
+//Flag2Param converts initialization flags to a string parameter.
+func Flag2Param(flag int) string{
+	return fmt.Sprintf("%d",flag)
+}
+
+
+// NewSession creates an empty fresh session object.
+func NewSession() *Session {
+	return &Session{Properties: make(Properties),dirty: true}
+}
+
+// SessionFromCookie reads a session object from the cookie.
+func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
+	// Base64 decode
+	raw,err := encoding.DecodeString(cookie.Value)
+	if err != nil {
+		log.Fatalf("Could not decode (base64) session: %s",err.Error())
+	}
+
+	// Decrypt
+	ibuf := bytes.NewBuffer(Decrypt(raw,key))
+
+	// Enflate
+	fbuf := new(bytes.Buffer)
+	r := flate.NewReader(ibuf)
+	fbuf.ReadFrom(r)
+
+	// JSON Decoder
+	dec := json.NewDecoder(fbuf)
+	s := NewSession()
+	s.dirty = false
+	if err = dec.Decode(&s.Properties);err != nil {
+		log.Fatalf("Could not decode (json) session: %s/%s",fbuf.String(),err.Error())
+	}
+	return s
+}
+
+// Set sets a property value with the given key.
+func (s *Session) Set(key,val string) {
+	s.dirty = true
+	s.Properties[key] = val
+}
+
+
+// Get returns the named property value if existing. If not nil is
+// returned.
+func (s *Session) Get(key string) string{
+	return s.Properties[key]
+}
+
+
+
+// Flush updates the cookie on client side if it was changed.
+// In order to do so it sets the "Set-Cookie" header on the http
+// response
+func (s *Session) Flush(w http.ResponseWriter,key []byte) {
+	if s.dirty {
+		http.SetCookie(w,s.Cookie(DefaultCookieName,DefaultCookiePath,key))
+	}
+}
+
+
+// Cookie generates a cookie object with the given name and path.
+// the cookie value is taken from the session properties, json encoded, defalted, encrypted with the given key and finally base64 encoded.
+func (s *Session) Cookie(name,path string, key []byte) *http.Cookie {
+	c := new(http.Cookie);
+
+	//JSON Encoding:
+	b ,err := json.Marshal(s.Properties)
+	if err != nil {
+		log.Fatalf("Cannot compile cookie: %s",err.Error())
+	}
+
+	//Deflate:
+	fbuf := new(bytes.Buffer)
+	fw,err := flate.NewWriter(fbuf,flate.BestCompression)
+	if err != nil {
+		log.Fatalf("Could not initialized compressor.")
+	}
+
+	if _,err := fw.Write(b);err!=nil {
+		log.Fatalf("Could not defalte content.")
+	}
+	fw.Flush()
+
+	// Encrypt and base64 encoding:
+	c.Name = name
+	c.Value = encoding.EncodeToString(Encrypt(fbuf.Bytes(),key))
+	c.Path = path
+	return c
 }
 
 // HTTPContext is a context object that will be injected by the frontend whenever an exposed method or function parameter
@@ -151,58 +268,82 @@ type Frontend struct {
 // response object.
 type HTTPContext struct{
 	Request *http.Request
-	Response *http.ResponseWriter
+	Response http.ResponseWriter
+}
+
+// Session tries to extract a session from the HTTPContext.
+// If it cannot be extracted, a new session is created.
+func (c *HTTPContext) Session(key []byte) *Session{
+	cookie,err := c.Request.Cookie(DefaultCookieName)
+	if err != nil {
+		s:= NewSession()
+		return s
+	}
+	return SessionFromCookie(cookie,key)
 }
 
 // NewFrontend creates a new proxy frontend object. Required parameter are the configuration flags. Optional
 // parameters are:
-//	1) Namespace to be used
-//	2) External URL, the system is reachable via
-//	3) Base path, where to look for template and library subdirectories
+//
+// 1) Namespace to be used
+//
+// 2) External URL the system is accessed
+//
+// 3) The base path where to look for template and library subdirectories
 //func NewFrontend(flags int,args ...string) (*Frontend){
-func NewFrontend(flags int ,args map[int]string) (*Frontend){
+func NewFrontend(args ...Parameters) (*Frontend){
 	f := Frontend{
 		Backend: NewBackend(),
-		flags: flags,
+		flags: F_DEFAULT,
 		extUrl: nil,
 		addr: DefaultListenAddress,
 		templateBasePath: DefaultBasePath,
 		namespace: DefaultNamespace,
 		context: DefaultContext,
 		publicDir: DefaultFileServerDir,
+		key: GenerateKey(16),
 		publicContext: DefaultFileServerContext}
 
-	for k,v:= range args {
-		switch k {
-			case P_EXTERNALURL:
-				url,err := url.Parse(v)
-				if err != nil {
-					log.Fatalf("Could not parse external url: \"%s\".",args[1])
-				}
-				f.extUrl = url
-				f.context = string(url.Path)
-				f.addr = string(url.Host)
-			case P_LISTENADDR:
-				f.addr = v
-			case P_BASEPATH:
-				f.templateBasePath = v
-			case P_PUBLICDIR:
-				f.publicDir = v
-			case P_CONTEXT:
-				f.context = v
-			case P_NAMESPACE:
-				f.namespace = v
-			case P_PUBLICCONTEXT:
-				f.publicContext = v
-
+	if len(args) > 0 {
+		for k,v:= range args[0] {
+			switch k {
+				case P_EXTERNALURL:
+					url,err := url.Parse(v)
+					if err != nil {
+						log.Fatalf("Could not parse external url: \"%s\".",args[1])
+					}
+					f.extUrl = url
+					f.context = string(url.Path)
+					f.addr = string(url.Host)
+				case P_LISTENADDR:
+					f.addr = v
+				case P_BASEPATH:
+					f.templateBasePath = v
+				case P_PUBLICDIR:
+					f.publicDir = v
+				case P_CONTEXT:
+					f.context = v
+				case P_NAMESPACE:
+					f.namespace = v
+				case P_PUBLICCONTEXT:
+					f.publicContext = v
+				case P_APPLICATIONKEY:
+					f.key = []byte(v)
+				case P_FLAGS:
+					if iv,err := strconv.Atoi(v); err != nil {
+						log.Fatalf("Could not parse initialization flags: %s",err.Error())
+					} else {
+						f.flags = iv
+					}
+			}
 		}
 	}
 
-	f.SetupInjection(&HTTPContext{})
+	f.SetupGlobalInjection(&HTTPContext{})
+	f.SetupGlobalInjection(&Session{})
 	f.mux = http.NewServeMux();
 	return &f
 }
-
 
 // Preload JS libraries if existing.
 // TODO: An order needs to specified somehow.
@@ -225,7 +366,6 @@ func (b *Frontend) loadLibraries() int{
 				}
 				elems := strings.Split(fi.Name(),".")
 				suffix := elems[len(elems)-1]
-
 
 				switch suffix {
 					case "js":
@@ -305,8 +445,6 @@ func (b *Frontend) loadTemplatesFromDir() {
 	}
 }
 
-
-
 // Load internal default templates for "binding.js", "interface.js" and "method.js".
 func (b *Frontend) loadDefaultTemplates() {
 	t := template.New(Template)
@@ -347,10 +485,16 @@ func (b *Frontend) Flags(flags ...int) int{
 
 // Build compiles the javascript based proxy-object (JS engine) including external libraries.
 // This consists of 4 areas:
-//	1:	Libraries (jQuery etc) which are read from fs during initialization.
-//	2:	 Engine (binding engine) whose tempalte is read from fs during initialization.
-//	3:	Interface objects whose template is read from ds during initialization.
-//	4:	Methods per interface whose template is read from fs during initialization.
+//
+// 1:	Libraries (jQuery etc) which are read from either the file system or the interned during initialization.
+//
+// 2:	Engine (binding engine).
+//
+// 3:	Interface objects.
+//
+// 4:	Methods per interface.
+//
+// Templates for 2),3),4) are either taken from application memory or read from the filesystem.
 func (b *Frontend) Build(out io.Writer) {
 	if  len(b.cache.engine) <= 0 || b.cache.revision < b.revision {
 		buf := new(bytes.Buffer)
@@ -396,7 +540,7 @@ func (b *Frontend) build(out io.Writer) {
 	b.template.Lookup(Template).Execute(out,proxyParams)
 
 	// (3) Interface objects
-	interfaces:=b.Interfaces()
+	interfaces:=b.InterfaceNames()
 	for _,in := range interfaces{
 		interfaceParams := Append(map[string]string{
 			tokenInterfaceName: in }, proxyParams)
@@ -404,7 +548,7 @@ func (b *Frontend) build(out io.Writer) {
 		b.template.Lookup(InterfaceTemplate).Execute(out,interfaceParams)
 
 		// (4) Method objects
-		methods := b.Binding.Methods(in)
+		methods := b.BindingContainer.BindingNames(in)
 		for _,m := range methods {
 			methodParams := Append(map[string]string{
 				tokenMethodName: m,
@@ -418,7 +562,7 @@ func (b *Frontend) build(out io.Writer) {
 
 // ValidationString generate a string that represents the signature of a method or function. It
 // is used to perform a runtime validation when calling a JS proxy method.
-func (b Binding) ValidationString(i,m string) (ret string){
+func (b BindingContainer) ValidationString(i,m string) (ret string){
 	r:= b[i][m]
 	t:=reflect.TypeOf(r.i)
 	var methodType reflect.Type
@@ -456,51 +600,81 @@ func (f *Frontend) Context(args ...string) string {
 	return f.context
 }
 
-// Log incoming http requests.
-func (f *Frontend) accessLog(w http.ResponseWriter,r *http.Request) {
-	if (f.flags & F_ENABLE_ACCESSLOG) > 0 {
-		log.Printf("[%s] %s ",r.Method,r.URL.Path)
+// EnableFileServer configures the file server and assigns the rooutes to the Multiplexer.
+func (f *Frontend) EnableFileServer(args ...string) {
+	al:=len(args)
+	if al > 0 {
+		f.publicDir = args[0]
 	}
+
+	if al > 1 {
+		f.publicContext = args[1]
+	}
+
+	if _,err := os.Stat(f.publicDir); err == nil {
+		f.fileServer = http.StripPrefix("/"+f.publicContext+"/",http.FileServer(http.Dir(f.publicDir)))
+		f.mux.Handle("/" + f.publicContext + "/",f.fileServer)
+	} else {
+		log.Printf("FileServer is enabled, but root dir \"%s\" does not exist or is not accessible.",f.publicDir)
+	}
+}
+
+// LogWraper type acts as a http handler that wrapps any other Muxer
+// or Handler
+type LogWraper struct{
+	handler http.Handler
+}
+
+// ServeHTTP is a httpn handler method and wraps the origin one of 
+// LogMuxer
+func (lm *LogWraper) ServeHTTP(w http.ResponseWriter,r *http.Request)  {
+	t := time.Now()
+	defer Log(r.Method,strconv.FormatInt(time.Since(t).Nanoseconds() / (1000),10),r.URL.Path)
+	lm.handler.ServeHTTP(w,r)
+}
+
+//NewLogWraper creates a new LogMuxer, that wraps the given http 
+// handler. See LogMuxer for more details.
+func NewLogWraper(origin http.Handler) *LogWraper {
+	return &LogWraper{origin}
 }
 
 // Start starts the http frontend. This method only returns in case a panic or unexpected
 // error occurs.
+// 1st optional parameter is the listen address ("localhost:8080") and 2nd optional parmaeter is
+// the engine context ("/gotojs")
+// If these are not provided, default or initialization values are used
 func (f *Frontend) Start(args ...string) error {
 	al:=len(args)
-	addr:=f.addr
 
 	if (al > 0) {
-		addr = args[0]
+		f.addr = args[0]
 	}
 
 	if (al > 1) {
 		f.context = args[1]
 	}
 
-	// Setup file server handler.
-	if f.flags & F_ENABLE_FILESERVER > 0 {
-		if _,err := os.Stat(f.publicDir); err == nil {
-			f.fileServer = http.StripPrefix("/"+f.publicContext+"/",http.FileServer(http.Dir(f.publicDir)))
-			f.mux.HandleFunc("/" + f.publicContext + "/",func(w http.ResponseWriter,r *http.Request) {
-				f.accessLog(w,r)
-				f.fileServer.ServeHTTP(w,r)
-			})
-		} else {
-			log.Printf("FileServer is enabled, but root dir \"%s\" does not exist or is not accessible.",f.publicDir)
-		}
-	}
-
 	// Setup gotojs engine handler.
 	f.mux.Handle(f.context + "/",f)
+
+	//final http handler
+	var handler http.Handler
+	if f.flags & F_ENABLE_ACCESSLOG  > 0{
+		handler = NewLogWraper(f.mux)
+	} else {
+		handler = f.mux
+	}
+
 	f.httpd = &http.Server{
-		Addr:		addr,
-		Handler:	f.mux,
+		Addr:		f.addr,
+		Handler:	handler,
 		ReadTimeout:	5 * time.Second,
 		WriteTimeout:	10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	log.Printf("Starting server at \"%s\".",addr)
+	log.Printf("Starting server at \"%s\".",f.addr)
 	return f.httpd.ListenAndServe()
 }
 
@@ -529,54 +703,55 @@ func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 // ServeHTTP processes http request. Depending on the mehtod either a call is expected (POST) or 
 // the JS engine is returned (GET)
 func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
+
 	defer func() {
 		if re:=recover();re!=nil {
-			http.Error(w,"",http.StatusInternalServerError)
-			log.Printf("[%s] %s FAILED: %s",r.Method,r.URL.Path,re)
-
 			m := errorMessage{Error:"Unknown"}
-
 			// Check if panic is an error message 
-			v,ok := re.(string)
-			if ok {
+			if v,ok := re.(string); ok {
 				m.Error = v
 			}
 
 			b,_ := json.Marshal(m)
 			w.Write(b)
 			//panic(re)
-		} else {
-			f.accessLog(w,r)
 		}
+	}()
+
+	httpContext := &HTTPContext{Request: r,Response: w}
+	session := httpContext.Session(f.key)
+	obuf := new(bytes.Buffer)
+
+	defer func() {
+		session.Flush(w,f.key)
+		obuf.WriteTo(w)
 	}()
 
 	switch r.Method {
 		case "POST":
 			w.Header().Set("Content-Type", "application/json")
-			e := f.processCall(r.Body,w,&HTTPContext{Request: r,Response: &w})
+			e := f.processCall(r.Body,obuf,NewI(httpContext,session))
 			if e != nil{
 				panic(e.Error())
 			}
 		case "GET":
 			w.Header().Set("Content-Type", "application/javascript")
-			f.Build(w)
+			f.Build(obuf)
 	}
 }
 
 // Internally used method to process a call. Input parameters, interface name and method name a read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
-func (f *Frontend) processCall(in io.Reader, out io.Writer,context *HTTPContext) (e error) {
+func (f *Frontend) processCall(in io.Reader, out io.Writer,injs Injections) (e error) {
 	var b []byte
 	var m incomingMessage
-	defer func() {
-		log.Printf("[CALL] %s.%s(%s) => %d bytes",m.Interface,m.Method,"...",len(b))
-	}()
+	defer func() {Log("CALL","-",m.Interface + "." + m.Method,strconv.Itoa(len(b))) }()
 	dec:=json.NewDecoder(in)
 	if err := dec.Decode(&m); err != nil{
 		return fmt.Errorf("Could not parse JSON parameter: %s",err.Error())
 	}
 
-	ret := f.InvokeI(m.Interface,m.Method,NewI(context),m.Data...)
+	ret := f.InvokeI(m.Interface,m.Method,injs,m.Data...)
 	o := outgoingMessage{
 		CRID: m.CRID,
 		Data: ret}

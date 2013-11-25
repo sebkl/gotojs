@@ -12,11 +12,8 @@ import (
 )
 
 func ExampleFrontend_fileserver() {
-	// Initialize the frontend.  Use /tmp as filserver root.
-	frontend := NewFrontend(F_DEFAULT ,map[int]string{
-		P_EXTERNALURL: "http://localhost:8789/gotojs",
-		P_PUBLICDIR: "/tmp",
-		P_PUBLICCONTEXT: "p"})
+	// Initialize the frontend. 
+	frontend := NewFrontend()
 
 	// Define the index.html and write it to the public dir:
 	index:=`
@@ -36,11 +33,14 @@ func ExampleFrontend_fileserver() {
 	}()
 	if err != nil { panic(err) }
 
+	//Enable the fileserver wiht docroot at "/tmp" under path "p"
+	frontend.EnableFileServer("/tmp","p")
+
 	//Create a redirect from homepage to the temporary index.html
 	frontend.Redirect("/","/p/__gotojs_index.html")
 
 	// Start the server.
-	go func() {log.Fatal(frontend.Start())}()
+	go func() {log.Fatal(frontend.Start("localhost:8789"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

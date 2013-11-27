@@ -234,3 +234,17 @@ func TestSession (t *testing.T) {
 		t.Errorf("Session could not be restored.")
 	}
 }
+
+func TestInvalidSession (t *testing.T) {
+	key := GenerateKey(16)
+	c := &HTTPContext{}
+	buf := new(bytes.Buffer)
+	c.Request,_ = http.NewRequest("POST","http://localhost:666/Ignoreme",buf)
+	c.Request.Header["Cookie"] = []string{DefaultCookieName + "=asdnjasndhabsdahsbdasdhasd; path=/"}
+	s := c.Session(key)
+	if s == nil {
+		t.Errorf("Session call should always return a valid session.")
+	}
+}
+
+

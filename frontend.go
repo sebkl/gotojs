@@ -7,7 +7,7 @@
 //
 // This service includes the follwing features:
 //
-// - Injection of Objects (like a http context)      
+// - Injection of Objects (like a session or http context)      
 //
 // - Automatic include of external and internal libaries while the engine is loaded.    
 //
@@ -187,7 +187,7 @@ func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
 	// Base64 decode
 	raw,err := encoding.DecodeString(cookie.Value)
 	if err != nil {
-		log.Fatalf("Could not decode (base64) session: %s",err.Error())
+		panic(fmt.Sprintf("Could not decode (base64) session: %s",err.Error()))
 	}
 
 	// Decrypt
@@ -203,7 +203,7 @@ func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
 	s := NewSession()
 	s.dirty = false
 	if err = dec.Decode(&s.Properties);err != nil {
-		log.Fatalf("Could not decode (json) session: %s/%s",fbuf.String(),err.Error())
+		panic(fmt.Sprintf("Could not decode (json) session: %s/%s",fbuf.String(),err.Error()))
 	}
 	return s
 }
@@ -220,8 +220,6 @@ func (s *Session) Set(key,val string) {
 func (s *Session) Get(key string) string{
 	return s.Properties[key]
 }
-
-
 
 // Flush updates the cookie on client side if it was changed.
 // In order to do so it sets the "Set-Cookie" header on the http
@@ -273,13 +271,22 @@ type HTTPContext struct{
 
 // Session tries to extract a session from the HTTPContext.
 // If it cannot be extracted, a new session is created.
-func (c *HTTPContext) Session(key []byte) *Session{
+func (c *HTTPContext) Session(key []byte) (s *Session){
+	defer func() {
+		if r := recover(); r != nil {
+		    // If something happens ... return fresh session
+		    log.Printf("%s. Creating fresh session.",r)
+		    s = NewSession()
+		}
+	}()
 	cookie,err := c.Request.Cookie(DefaultCookieName)
 	if err != nil {
-		s:= NewSession()
-		return s
+		s = NewSession()
+		//panic("No Cookie")
+	} else {
+		s = SessionFromCookie(cookie,key)
 	}
-	return SessionFromCookie(cookie,key)
+	return s
 }
 
 // NewFrontend creates a new proxy frontend object. Required parameter are the configuration flags. Optional

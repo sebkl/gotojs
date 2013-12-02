@@ -77,15 +77,18 @@ func (m *Binding) AddInjection(i interface{}) *Binding{
 
 	var ac int
 	var meth reflect.Value
+	off := 0
 	if m.methodNum >= 0 {
 		ac = v.Method(m.methodNum).Type().NumIn()
 		meth = t.Method(m.methodNum).Func
+		off = 1
 	} else {
 		ac = t.NumIn()
 		meth = v
 	}
 
-	for i:=0;i<ac;i++ {
+
+	for i:=off;i<(ac+off);i++ {
 		at := meth.Type().In(i)
 		if at == it {
 			m.injections[i] = at

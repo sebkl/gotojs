@@ -85,7 +85,7 @@ func TestParseJS(t *testing.T) {
 
 
 func TestValidationString(t *testing.T) {
-	vs := frontend.ValidationString("TestService","SetAndGetParam")
+	vs := frontend.BindingContainer["TestService"]["SetAndGetParam"].ValidationString()
 	t.Logf("Validation string for \"%s.%s\" is : %s.","TestService","SetAndGetParam",vs)
 	if vs != "i" {
 		t.Errorf("Incorrect validation string: %s",vs)
@@ -94,10 +94,32 @@ func TestValidationString(t *testing.T) {
 		t.Logf("%s,%s,%s,%s,%s",i,o,f,s,sa)
 		return 0
 	},"X","test")
-	vs = frontend.ValidationString("X","test")
+	vs = frontend.BindingContainer["X"]["test"].ValidationString()
 	t.Logf("Validation string for \"%s.%s\" is : %s.","X","test",vs)
 	if vs != "iofsa" {
 		t.Errorf("Incorrect validation string: %s",vs)
+	}
+}
+
+func TestValidationStringWithInjection(t *testing.T) {
+	frontend.ExposeFunction( func (s *Session,c *HTTPContext) int { return 0 },"X","test")
+	vs := frontend.BindingContainer["X"]["test"].ValidationString();
+	if len(vs) != 0 {
+		t.Errorf("Incorrect validation string: \"%s\"/\"%s\"",vs,"");
+	}
+}
+
+type TestService3 struct{}
+func (ts *TestService3) test(a,b,c string,session *Session) string{
+	return a + b + c;
+}
+
+func TestValidationStringWithInjectionAndInterfaceExposure(t *testing.T) {
+	frontend.ExposeInterface(&TestService3{})
+	defer frontend.RemoveInterface("TestService3")
+	vs := frontend.BindingContainer["TestService3"]["test"].ValidationString();
+	if len(vs) != 3 {
+		t.Errorf("Incorrect validation string: \"%s\"/\"%s\"",vs,"sss");
 	}
 }
 
@@ -218,7 +240,6 @@ func TestAutoInjectionFilter(t *testing.T) {
 		t.Errorf("Filter has forbidden access. %d/%d",res,1000)
 	}
 }
-
 
 func TestSession (t *testing.T) {
 	key := GenerateKey(16)

@@ -1,5 +1,6 @@
 # gotojs
-Package gotojs offers a library for **exposing go-interfaces as Javascript proxy objects**.   
+Package gotojs offers a library for **exposing go-interfaces via an HTTP interface**.   
+Furthermore this HTTP interface is compiled to a Javascript interface in the same step.
 Therefore package gotojs assembles a JS engine which creates proxy objects as JS code and forwards the calls to them via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
 
 ## Requirements

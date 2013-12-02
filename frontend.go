@@ -557,9 +557,11 @@ func (b *Frontend) build(out io.Writer) {
 		// (4) Method objects
 		methods := b.BindingContainer.BindingNames(in)
 		for _,m := range methods {
+			bi,_ := b.Binding(in,m)
+			vs:= bi.ValidationString()
 			methodParams := Append(map[string]string{
 				tokenMethodName: m,
-				tokenArgumentsString: b.ValidationString(in,m)},interfaceParams)
+				tokenArgumentsString: vs},interfaceParams)
 			b.template.Lookup(MethodTemplate).Execute(out,methodParams)
 
 		}
@@ -569,8 +571,7 @@ func (b *Frontend) build(out io.Writer) {
 
 // ValidationString generate a string that represents the signature of a method or function. It
 // is used to perform a runtime validation when calling a JS proxy method.
-func (b BindingContainer) ValidationString(i,m string) (ret string){
-	r:= b[i][m]
+func (r *Binding) ValidationString() (ret string){
 	t:=reflect.TypeOf(r.i)
 	var methodType reflect.Type
 	first := 0;
@@ -755,7 +756,8 @@ func (f *Frontend) processCall(in io.Reader, out io.Writer,injs Injections) (e e
 	defer func() {Log("CALL","-",m.Interface + "." + m.Method,strconv.Itoa(len(b))) }()
 	dec:=json.NewDecoder(in)
 	if err := dec.Decode(&m); err != nil{
-		return fmt.Errorf("Could not parse JSON parameter: %s",err.Error())
+		log.Printf("Could not parse JSON parameter: %s",err.Error())
+		return err
 	}
 
 	ret := f.InvokeI(m.Interface,m.Method,injs,m.Data...)
@@ -765,7 +767,7 @@ func (f *Frontend) processCall(in io.Reader, out io.Writer,injs Injections) (e e
 
 	b, err := json.Marshal(o)
 	if err != nil {
-		fmt.Println("error:", err)
+		Log("Error:",err.Error())
 		return e
 	}
 	out.Write(b)

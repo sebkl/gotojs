@@ -70,7 +70,6 @@ func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error)
 	return resp,err
 }
 
-
 func TestParseJS(t *testing.T) {
 	if !existsNodeJS() {
 		//TODO: Change this to skip
@@ -82,7 +81,6 @@ func TestParseJS(t *testing.T) {
 	}
 	t.Logf("Successfully parsed generated JS code.")
 }
-
 
 func TestValidationString(t *testing.T) {
 	vs := frontend.BindingContainer["TestService"]["SetAndGetParam"].ValidationString()
@@ -265,6 +263,18 @@ func TestInvalidSession (t *testing.T) {
 	s := c.Session(key)
 	if s == nil {
 		t.Errorf("Session call should always return a valid session.")
+	}
+}
+
+func BenchmarkSessions (b *testing.B) {
+	key := GenerateKey(16)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s:= NewSession()
+		s.Set("param1","value1")
+		s.Set("param2","value2")
+		c:= s.Cookie("gotojs","/",key)
+		_ = SessionFromCookie(c,key)
 	}
 }
 

@@ -19,7 +19,7 @@ var MyTestService2 = TestService2{param2: 0}
 var backend = NewBackend()
 
 func (t *TestService) SetAndGetParam(p int)  int	{ /*log.Printf("Invoked on %p",t); */ t.param1 = p; return t.param1}
-func (t *TestService) GetParam() int			{ log.Printf("TestService.GetParam() @ %p",t); return t.param1 }
+func (t *TestService) GetParam() int			{ /* log.Printf("TestService.GetParam() @ %p",t);*/ return t.param1 }
 func (t *TestService) SetParam(p int)			{ log.Printf("TestService.SetParam(%d) @ %p\n",p,t); t.param1 = p}
 func (t TestService)  SetAndGetParam2(p int)  int	{ t.param1 = p; return t.param1}
 func (t *TestService) InvalidMethod1(p int)  (int,int)	{ return p,0}
@@ -355,6 +355,32 @@ func TestNegativeFilterChain(t *testing.T) {
 
 	if MyTestService.GetParam() != 17 {
 		t.Errorf("Filter failed. Call was successful. %d/%d",MyTestService.GetParam(),17)
+	}
+}
+
+func BenchmarkInvocation(b *testing.B) {
+	/* Check the plain invocation framework here. */
+	for i := 0; i < b.N; i++ {
+		 _ = backend.Invoke("TestService","GetParam")
+	}
+}
+
+func BenchmarkFibonacci(b *testing.B) {
+
+	backend.ExposeFunction(func (in int) (ret int) {
+		cache := []int{0,1}
+		ret = cache[in % 2]
+		for i:=2; i <= in;i++ {
+			ret := cache[0] + cache[1]
+			cache[0] = cache[1]
+			cache[1] = ret
+		}
+		return
+	},"MATH","FIBO")
+	defer backend.RemoveInterface("MATH")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		 _ = backend.Invoke("MATH","FIBO",100000)
 	}
 }
 

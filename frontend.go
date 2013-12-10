@@ -691,7 +691,7 @@ func (f* Frontend) Mux() *http.ServeMux {
 	return f.mux
 }
 
-// Redriect is a convenience method which configures a redirect handler from the patter to adestination url.
+// Redirect is a convenience method which configures a redirect handler from the patter to adestination url.
 func (f* Frontend) Redirect(pattern,url string) {
 	f.mux.Handle(pattern,http.RedirectHandler(url,http.StatusFound))
 }
@@ -718,6 +718,8 @@ func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 			// Check if panic is an error message 
 			if v,ok := re.(string); ok {
 				m.Error = v
+			} else if v,ok :=re.(error); ok {
+				m.Error = v.Error()
 			}
 
 			b,_ := json.Marshal(m)

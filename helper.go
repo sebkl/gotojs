@@ -9,6 +9,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"io"
+	"runtime"
 )
 
 // Check if a slice contains a certain string.
@@ -32,7 +33,7 @@ func Append(to map[string]string,from map[string]string) map[string]string {
 // Log is helper function that logs in various paremeter
 // seperated by a pipe in a standardized way.
 func Log(t string,args ...string) {
-	log.Printf("[%s]%s",t,strings.Join(args,"|"))
+	log.Printf("[%s]%d|%s",t,runtime.NumGoroutine(),strings.Join(args,"|"))
 }
 
 // generateKey generates a random application key.

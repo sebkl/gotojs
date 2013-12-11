@@ -365,23 +365,39 @@ func BenchmarkInvocation(b *testing.B) {
 	}
 }
 
-func BenchmarkFibonacci(b *testing.B) {
+func fibonacci(in int) (ret int) {
+	cache := []int{0,1}
+	ret = cache[in % 2]
+	for i:=2; i <= in;i++ {
+		ret := cache[0] + cache[1]
+		cache[0] = cache[1]
+		cache[1] = ret
+	}
+	return
+}
 
-	backend.ExposeFunction(func (in int) (ret int) {
-		cache := []int{0,1}
-		ret = cache[in % 2]
-		for i:=2; i <= in;i++ {
-			ret := cache[0] + cache[1]
-			cache[0] = cache[1]
-			cache[1] = ret
-		}
-		return
-	},"MATH","FIBO")
+func BenchmarkFibonacci(b *testing.B) {
+	backend.ExposeFunction(fibonacci,"MATH","FIBO")
 	defer backend.RemoveInterface("MATH")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		 _ = backend.Invoke("MATH","FIBO",100000)
+		 _ = backend.Invoke("MATH","FIBO",100000000)
 	}
 }
 
+func TestRegexpFilter(t *testing.T) {
+	pattern := `\.(Get|Set)Param$`
+	bs := backend.Bindings().Match(pattern)
+	found := 0
+	for _,b := range bs {
+		if !(b.Name() == "TestService.GetParam" || b.Name() == "TestService.SetParam") {
+			t.Errorf("Regexp filter failed: \"%s\" -> \"%s\"",pattern,b.Name())
+		} else {
+			found++
+		}
+	}
 
+	if found < 2 {
+		t.Errorf("Regexp filter failed. Not all bindings matching \"%s\" found. %d,%d",pattern,found,2)
+	}
+}

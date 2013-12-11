@@ -278,4 +278,15 @@ func BenchmarkSessions (b *testing.B) {
 	}
 }
 
+func BenchmarkFrontend (b *testing.B) {
+	frontend.ExposeFunction(fibonacci,"MATH","FIBO")
+	defer frontend.RemoveInterface("MATH")
+	b.ResetTimer()
+	for i:=0; i<b.N; i++ {
+		fakeHeader := "text/fake"
+		buf := bytes.NewBufferString("{\"Interface\":\"MATH\",\"Method\":\"FIBO\",\"Data\": [100000000]}")
+		_,_ = http.Post("http://localhost:8786/gotojs/MATH/FIBO", fakeHeader, buf)
+	}
+}
+
 

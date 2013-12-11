@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"log"
 	"strings"
+	"regexp"
 )
 
 const (
@@ -113,6 +114,31 @@ func (b Backend) SetupGlobalInjection(i interface{}) {
 	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
 }
 
+
+// Match filters the list of Bindings and only returns those bindings whose
+// name matches the given regex pattern.
+// The interface is alwas placed in front of the method name seperated
+// by a ".".
+func (bs Bindings) Match(pattern string) Bindings {
+	re,err := regexp.Compile(pattern)
+
+	if err != nil {
+		log.Printf("Compilation of regexp patter \"%s\" failed: %s",pattern,err.Error())
+		return make(Bindings,0)
+	}
+
+	ret := make(Bindings,len(bs))
+	i := 0
+	for _,b := range bs {
+		n := b.Name()
+		if re.MatchString(n) {
+			ret[i] = b
+			i++
+		}
+	}
+	return ret[0:i]
+}
+
 // addGlobalInjection adds the global injection types to the given binding.
 func (b *Binding) addGlobalInjections() {
 	for _,v := range b.backend.globalInjections {
@@ -210,6 +236,12 @@ func (b* Binding) ClearFilter() *Binding {
 	return b
 }
 
+// Remove removes the binding from the binding container.
+func (b *Binding) Remove() {
+	b.backend.RemoveBinding(b.interfaceName,b.methodName)
+}
+
+
 // If sets a filter for all given binding. See type Filter for more information.
 func (bs Bindings) If(f Filter) Bindings{
 	for _,b := range bs {
@@ -224,6 +256,13 @@ func (bs Bindings) ClearFilter() Bindings {
 		b.ClearFilter()
 	}
 	return bs
+}
+
+// Remove removes all bindings from their binding container.
+func (bs Bindings) Remove() {
+	for _,b := range bs {
+		b.Remove()
+	}
 }
 
 // Name returns the name of the given Binding. This is a concatenation of 
@@ -262,7 +301,7 @@ func (b BindingContainer) RemoveInterface(i string) {
 	delete(b,i)
 }
 
-// REmoveBinding removes a single method from the binding container identified by the interface and method name.
+// RemoveBinding removes a single method from the binding container identified by the interface and method name.
 func (b BindingContainer) RemoveBinding(i,m string) {
 	delete(b[i],m)
 }

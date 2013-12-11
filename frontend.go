@@ -107,7 +107,7 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Array: 'a',
 	reflect.Chan: '_',
 	reflect.Func: '_',
-	reflect.Interface: '_',
+	reflect.Interface: 'o',
 	reflect.Map: 'm',
 	reflect.Ptr: 'i',
 	reflect.Slice: 'a',
@@ -132,6 +132,12 @@ type errorMessage struct {
 type cache struct {
 	engine,libraries string
 	revision uint64
+}
+
+type call struct {
+	w http.ResponseWriter
+	r *http.Request
+	ret chan int
 }
 
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
@@ -214,7 +220,6 @@ func (s *Session) Set(key,val string) {
 	s.Properties[key] = val
 }
 
-
 // Get returns the named property value if existing. If not nil is
 // returned.
 func (s *Session) Get(key string) string{
@@ -229,7 +234,6 @@ func (s *Session) Flush(w http.ResponseWriter,key []byte) {
 		http.SetCookie(w,s.Cookie(DefaultCookieName,DefaultCookiePath,key))
 	}
 }
-
 
 // Cookie generates a cookie object with the given name and path.
 // the cookie value is taken from the session properties, json encoded, defalted, encrypted with the given key and finally base64 encoded.
@@ -686,6 +690,7 @@ func (f *Frontend) Start(args ...string) error {
 	return f.httpd.ListenAndServe()
 }
 
+
 //Mux returns the internally user request multiplexer. It allows to assign additional http handlers
 func (f* Frontend) Mux() *http.ServeMux {
 	return f.mux
@@ -710,8 +715,7 @@ func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 
 // ServeHTTP processes http request. Depending on the mehtod either a call is expected (POST) or 
 // the JS engine is returned (GET)
-func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
-
+func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	defer func() {
 		if re:=recover();re!=nil {
 			m := errorMessage{Error:"Unknown"}
@@ -724,7 +728,6 @@ func (f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 			b,_ := json.Marshal(m)
 			w.Write(b)
-			//panic(re)
 		}
 	}()
 

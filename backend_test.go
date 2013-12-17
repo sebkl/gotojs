@@ -385,6 +385,18 @@ func BenchmarkFibonacci(b *testing.B) {
 	}
 }
 
+func TestExposeMethod(b *testing.T) {
+	backend.ExposeMethod(MyTestService,"GetParam","AlternateService")
+	_,found := backend.Binding("AlternateService","GetParam")
+
+	i := backend.Interface("AlternateService")
+	defer backend.RemoveInterface("AlternateService")
+
+	if len(i.Bindings()) != 1 || !found {
+		b.Errorf("Regexp filter for exposing a single method failed.")
+	}
+}
+
 func TestRegexpFilter(t *testing.T) {
 	pattern := `\.(Get|Set)Param$`
 	bs := backend.Bindings().Match(pattern)

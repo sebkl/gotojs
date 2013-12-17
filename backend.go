@@ -164,6 +164,17 @@ func (b* Backend) NewBinding(i interface{},x int, in,mn string) (*Binding) {
 // Expose an entire interface. All methods of the given interface will be exposed. THe name of the
 // exposed interface is either taken from type name or could be specified as additional name parameter.
 func (b *Backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
+	return b.ExposeMethods(i,"",name...)
+}
+
+
+// ExposeMethod is a convenience method to ExposeMethods for exposing a single method of an interface.
+func (b *Backend) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
+	return b.ExposeMethods(i,"^" + name + "$",target_name...)
+}
+
+// ExposeMethods exposes the methods of a interface that do match the given regex pattern.
+func (b *Backend) ExposeMethods(i interface{},pattern string, name ...string) ( ret Bindings) {
 	// Try to get object/receiver name from interface.
 	k:=reflect.ValueOf(i).Type().Kind();
 
@@ -177,7 +188,7 @@ func (b *Backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 
 	// Find name either by args or by interface type. 
 	if len(name) > 0 {
-		ret =  b.exposeInterfaceTo(i,name[0])
+		ret =  b.exposeInterfaceTo(i,name[0],pattern)
 	} else {
 		// TODO: Fix this crap.
 		name := reflect.ValueOf(i).Type().String()
@@ -186,7 +197,7 @@ func (b *Backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 		if len(iname) <= 0 {
 			iname = DefaultFunctionName
 		}
-		ret = b.exposeInterfaceTo(i,iname)
+		ret = b.exposeInterfaceTo(i,iname,pattern)
 	}
 	b.revision++
 	return
@@ -403,7 +414,6 @@ func NewI(args ...interface{}) (Injections) {
 	return ret
 }
 
-
 // Add adds an injection object to the list of injections.
 func (inj Injections) Add(i interface{}) {
 	inj[reflect.TypeOf(i)] = i
@@ -511,7 +521,7 @@ func (r *Binding) InvokeI(ri Injections,args ...interface{}) (ret interface{}) {
 }
 
 // Internal function that oursources the actual exposing code from the ExposeInterface method.
-func (b *Backend) exposeInterfaceTo(i interface{}, n string) (ret Bindings) {
+func (b *Backend) exposeInterfaceTo(i interface{}, n, pattern string) (ret Bindings) {
 	t := reflect.TypeOf(i)
 	ow := 0 // amount of overwritten methods.
 	c:= 0 // final amount of exposed methods.
@@ -526,17 +536,22 @@ func (b *Backend) exposeInterfaceTo(i interface{}, n string) (ret Bindings) {
 		}
 
 		mn := mt.Name
-		_, found := b.Binding(n,mn)
-		if found {
-			ow++
-			log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,n)
-		}
-		pm := b.NewBinding(i,x,n,mn)
-		b.BindingContainer[n][mn] = pm
+		// If a pattern is given, check the method name first.
+		if  matched,_ := regexp.Match(pattern,[]byte(mn)); len(pattern) == 0 || matched {
+			_, found := b.Binding(n,mn)
+			if found {
+				ow++
+				log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,n)
+			}
 
-		//Compile return slice
-		ret[c] = pm
-		c++;
+			pm := b.NewBinding(i,x,n,mn)
+			b.BindingContainer[n][mn] = pm
+
+			//Compile return slice
+			ret[c] = pm
+			c++;
+		}
+
 	}
 	log.Printf("Added %d methods to interface \"%s\". %d of %d have been overwritten.",c,n,ow,c)
 	return ret[:c]

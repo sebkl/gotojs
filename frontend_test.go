@@ -266,6 +266,27 @@ func TestInvalidSession (t *testing.T) {
 	}
 }
 
+func TestGETCall(t *testing.T) {
+	r,e := http.Get("http://localhost:8786/gotojs/TestService/GetParam")
+	if (e != nil) {
+		panic(e)
+	}
+	if r.StatusCode != 200 {
+		t.Errorf("GET invocation failed with status code: %d/%d",r.StatusCode,200)
+	}
+
+}
+
+func TestWiredGETCall(t *testing.T) {
+	r,e := http.Get("http://localhost:8786/gotojs//../gotojs//TestService/../TestService///GetParam")
+	if (e != nil) {
+		panic(e)
+	}
+	if r.StatusCode != 200 {
+		t.Errorf("GET invocation failed with status code: %d/%d",r.StatusCode,200)
+	}
+}
+
 func BenchmarkSessions (b *testing.B) {
 	key := GenerateKey(16)
 	b.ResetTimer()

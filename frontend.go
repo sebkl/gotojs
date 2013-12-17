@@ -15,6 +15,7 @@
 package gotojs
 
 import (
+	"errors"
 	"reflect"
 	"text/template"
 	"log"
@@ -115,7 +116,7 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Struct: 'o',
 	reflect.UnsafePointer: 'i' }
 
-type incomingMessage struct {
+type call struct {
 	Interface,Method,CRID string
 	Data []interface{}
 }
@@ -132,12 +133,6 @@ type errorMessage struct {
 type cache struct {
 	engine,libraries string
 	revision uint64
-}
-
-type call struct {
-	w http.ResponseWriter
-	r *http.Request
-	ret chan int
 }
 
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
@@ -185,7 +180,7 @@ func Flag2Param(flag int) string{
 
 // NewSession creates an empty fresh session object.
 func NewSession() *Session {
-	return &Session{Properties: make(Properties),dirty: true}
+	return &Session{Properties: make(Properties),dirty: false}
 }
 
 // SessionFromCookie reads a session object from the cookie.
@@ -193,7 +188,7 @@ func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
 	// Base64 decode
 	raw,err := encoding.DecodeString(cookie.Value)
 	if err != nil {
-		panic(fmt.Sprintf("Could not decode (base64) session: %s",err.Error()))
+		panic(errors.New(fmt.Sprintf("Could not decode (base64) session: %s",err.Error())))
 	}
 
 	// Decrypt
@@ -209,7 +204,7 @@ func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
 	s := NewSession()
 	s.dirty = false
 	if err = dec.Decode(&s.Properties);err != nil {
-		panic(fmt.Sprintf("Could not decode (json) session: %s/%s",fbuf.String(),err.Error()))
+		panic(errors.New(fmt.Sprintf("Could not decode (json) session: %s/%s",fbuf.String(),err.Error())))
 	}
 	return s
 }
@@ -713,21 +708,26 @@ func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 	})
 }
 
+
+// ErrorToJSON translate a go error into a JSON object.
+func ErrorToJSONString(e error) string {
+	mes := "unknown"
+	if e != nil {
+		mes = e.Error()
+	}
+	b,_:= json.Marshal(errorMessage{Error: mes })
+	buf := new(bytes.Buffer)
+	buf.Write(b)
+	return buf.String()
+}
+
 // ServeHTTP processes http request. Depending on the mehtod either a call is expected (POST) or 
 // the JS engine is returned (GET)
 func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	defer func() {
 		if re:=recover();re!=nil {
-			m := errorMessage{Error:"Unknown"}
-			// Check if panic is an error message 
-			if v,ok := re.(string); ok {
-				m.Error = v
-			} else if v,ok :=re.(error); ok {
-				m.Error = v.Error()
-			}
-
-			b,_ := json.Marshal(m)
-			w.Write(b)
+			e,_ :=re.(error)
+			http.Error(w,ErrorToJSONString(e),http.StatusInternalServerError)
 		}
 	}()
 
@@ -736,45 +736,66 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	obuf := new(bytes.Buffer)
 
 	defer func() {
-		session.Flush(w,f.key)
+		session.Flush(w,f.key) //Update session on client side if necessary.
 		obuf.WriteTo(w)
 	}()
 
+	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 		case "POST":
 			w.Header().Set("Content-Type", "application/json")
-			e := f.processCall(r.Body,obuf,NewI(httpContext,session))
-			if e != nil{
-				panic(e.Error())
+			dec:=json.NewDecoder(r.Body)
+			var m call
+			if e := dec.Decode(&m); e != nil{
+				panic(e)
+			}
+
+			if b,found := f.Binding(m.Interface,m.Method); found {
+				b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
+			} else {
+				http.Error(w,ErrorToJSONString(errors.New(fmt.Sprint("Binding %s.%s not found.",m.Interface,m.Method))),http.StatusNotFound)
+				return
 			}
 		case "GET":
+			path := r.URL.Path
+			if strings.Contains(path,f.context) {
+				sub:= strings.SplitAfter(path,f.context)
+				elems := strings.Split(sub[1],"/")
+
+				if len(elems) == 0 {
+					elems = elems[1:]
+				}
+
+				if len(elems) >= 2 {
+					if b,f := f.Binding(elems[1],elems[2]); f {
+						b.processCall(obuf,NewI(httpContext,session),"")
+					} else {
+						http.Error(w,ErrorToJSONString(errors.New(fmt.Sprintf("Binding %s.%s not found.",elems[1],elems[2]))),http.StatusNotFound)
+					}
+					return
+				}
+			}
 			w.Header().Set("Content-Type", "application/javascript")
 			f.Build(obuf)
+		default:
+			http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 	}
 }
 
 // Internally used method to process a call. Input parameters, interface name and method name a read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
-func (f *Frontend) processCall(in io.Reader, out io.Writer,injs Injections) (e error) {
+func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...interface{}) {
 	var b []byte
-	var m incomingMessage
-	defer func() {Log("CALL","-",m.Interface + "." + m.Method,strconv.Itoa(len(b))) }()
-	dec:=json.NewDecoder(in)
-	if err := dec.Decode(&m); err != nil{
-		log.Printf("Could not parse JSON parameter: %s",err.Error())
-		return err
-	}
-
-	ret := f.InvokeI(m.Interface,m.Method,injs,m.Data...)
+	defer func() {Log("CALL","-",f.interfaceName + "." + f.methodName,strconv.Itoa(len(b))) }()
+	ret := f.InvokeI(injs,args...)
 	o := outgoingMessage{
-		CRID: m.CRID,
+		CRID: id,
 		Data: ret}
 
 	b, err := json.Marshal(o)
 	if err != nil {
-		Log("Error:",err.Error())
-		return e
+		panic(err)
 	}
 	out.Write(b)
-	return nil
+	return
 }

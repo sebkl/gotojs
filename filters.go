@@ -3,6 +3,7 @@ package gotojs
 import(
 	"log"
 	"reflect"
+	"fmt"
 )
 
 // AutoInjectF returns a filter function whose parameters will be automatically injected based
@@ -12,11 +13,11 @@ func AutoInjectF(f interface{}) Filter {
 	fv := reflect.ValueOf(f)
 	ft := reflect.TypeOf(f)
 	if fv.Kind() != reflect.Func {
-		log.Fatalf("Parameter is not a function. %s/%s",fv.Kind().String(),reflect.Func.String())
+		panic(fmt.Errorf("Parameter is not a function. %s/%s",fv.Kind().String(),reflect.Func.String()))
 	}
 
 	if ft.NumOut() != 1 || ft.Out(0) != reflect.TypeOf(true) {
-		log.Fatal("Return parameter is not of type bool.")
+		panic(fmt.Errorf("Return parameter is not of type bool."))
 	}
 
 	return func (b *Binding,injo Injections) bool {

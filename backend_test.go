@@ -14,6 +14,10 @@ type TestService2 struct {
 	param2 int
 }
 
+type TestAttributeService struct {
+	Param int
+}
+
 var MyTestService = TestService{param1: 0}
 var MyTestService2 = TestService2{param2: 0}
 var backend = NewBackend()
@@ -413,3 +417,30 @@ func TestRegexpFilter(t *testing.T) {
 		t.Errorf("Regexp filter failed. Not all bindings matching \"%s\" found. %d,%d",pattern,found,2)
 	}
 }
+
+func TestExposeAttributes(t* testing.T) {
+	obj := TestAttributeService{Param: 5}
+	backend.ExposeAllAttributes(&obj,"AS")
+	defer backend.RemoveInterface("AS")
+
+	x := backend.Invoke("AS","Param")
+	if x != 5 {
+		t.Errorf("Exposing of attributes failed. %d/%d",x,5)
+	}
+}
+
+
+func TestExposeYourself(t *testing.T) {
+	backend.ExposeYourself("A")
+	defer backend.RemoveInterface("AS")
+	list := backend.Invoke("A","Bindings").([]string)
+
+	if len(list) <= 0 {
+		t.Errorf("Selfexposure failed.")
+	}
+
+	for _,s := range list {
+		t.Logf("Method: %s",s)
+	}
+}
+

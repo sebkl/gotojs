@@ -238,18 +238,18 @@ func (s *Session) Cookie(name,path string, key []byte) *http.Cookie {
 	//JSON Encoding:
 	b ,err := json.Marshal(s.Properties)
 	if err != nil {
-		log.Fatalf("Cannot compile cookie: %s",err.Error())
+		panic(fmt.Errorf("Cannot compile cookie: %s",err.Error()))
 	}
 
 	//Deflate:
 	fbuf := new(bytes.Buffer)
 	fw,err := flate.NewWriter(fbuf,flate.BestCompression)
 	if err != nil {
-		log.Fatalf("Could not initialized compressor.")
+		panic(fmt.Errorf("Could not initialized compressor."))
 	}
 
 	if _,err := fw.Write(b);err!=nil {
-		log.Fatalf("Could not defalte content.")
+		panic(fmt.Errorf("Could not defalte content."))
 	}
 	fw.Flush()
 
@@ -316,7 +316,7 @@ func NewFrontend(args ...Parameters) (*Frontend){
 				case P_EXTERNALURL:
 					url,err := url.Parse(v)
 					if err != nil {
-						log.Fatalf("Could not parse external url: \"%s\".",args[1])
+						panic(fmt.Errorf("Could not parse external url: \"%s\".",args[1]))
 					}
 					f.extUrl = url
 					f.context = string(url.Path)
@@ -337,7 +337,7 @@ func NewFrontend(args ...Parameters) (*Frontend){
 					f.key = []byte(v)
 				case P_FLAGS:
 					if iv,err := strconv.Atoi(v); err != nil {
-						log.Fatalf("Could not parse initialization flags: %s",err.Error())
+						panic(fmt.Errorf("Could not parse initialization flags: %s",err.Error()))
 					} else {
 						f.flags = iv
 					}
@@ -463,7 +463,7 @@ func (b *Frontend) loadDefaultTemplates() {
 	_,e3 := t.Parse(defaultTemplates.Method)
 
 	if e1 != nil || e2 != nil || e3 != nil {
-		log.Fatalf("Could not load internal templates: %s %s %s",e1.Error(),e2.Error(),e3.Error())
+		panic(fmt.Errorf("Could not load internal templates: %s %s %s",e1.Error(),e2.Error(),e3.Error()))
 	}
 	b.template = t
 }
@@ -574,8 +574,8 @@ func (r *Binding) ValidationString() (ret string){
 	t:=reflect.TypeOf(r.i)
 	var methodType reflect.Type
 	first := 0;
-	if (r.methodNum >= 0) {
-		methodType = t.Method(r.methodNum).Type
+	if (r.elemNum >= 0) {
+		methodType = t.Method(r.elemNum).Type
 		first =1
 	} else {
 		methodType = t
@@ -708,7 +708,6 @@ func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 	})
 }
 
-
 // ErrorToJSON translate a go error into a JSON object.
 func ErrorToJSONString(e error) string {
 	mes := "unknown"
@@ -729,6 +728,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 			e,_ :=re.(error)
 			http.Error(w,ErrorToJSONString(e),http.StatusInternalServerError)
 		}
+		r.Body.Close()
 	}()
 
 	httpContext := &HTTPContext{Request: r,Response: w}
@@ -751,7 +751,11 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 			}
 
 			if b,found := f.Binding(m.Interface,m.Method); found {
-				b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
+				if len(b.ValidationString()) != len(m.Data) {
+					http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d",len(m.Data),len(b.ValidationString()))),http.StatusBadRequest)
+				} else {
+					b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
+				}
 			} else {
 				http.Error(w,ErrorToJSONString(errors.New(fmt.Sprint("Binding %s.%s not found.",m.Interface,m.Method))),http.StatusNotFound)
 				return
@@ -759,18 +763,22 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 		case "GET":
 			path := r.URL.Path
 			if strings.Contains(path,f.context) {
-				sub:= strings.SplitAfter(path,f.context)
+				sub:= strings.SplitAfterN(path,f.context,2)
 				elems := strings.Split(sub[1],"/")
 
-				if len(elems) == 0 {
+				if len(elems) > 0 {
 					elems = elems[1:]
 				}
 
 				if len(elems) >= 2 {
-					if b,f := f.Binding(elems[1],elems[2]); f {
-						b.processCall(obuf,NewI(httpContext,session),"")
+					if b,f := f.Binding(elems[0],elems[1]); f {
+						if len(b.ValidationString()) != 0 {
+							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d",0,len(b.ValidationString()))),http.StatusBadRequest)
+						} else {
+							b.processCall(obuf,NewI(httpContext,session),"")
+						}
 					} else {
-						http.Error(w,ErrorToJSONString(errors.New(fmt.Sprintf("Binding %s.%s not found.",elems[1],elems[2]))),http.StatusNotFound)
+						http.Error(w,ErrorToJSONString(errors.New(fmt.Sprintf("Binding %s.%s not found.",elems[0],elems[1]))),http.StatusNotFound)
 					}
 					return
 				}
@@ -786,7 +794,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 // input stream. The result is encoded to a JSON output stream.
 func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...interface{}) {
 	var b []byte
-	defer func() {Log("CALL","-",f.interfaceName + "." + f.methodName,strconv.Itoa(len(b))) }()
+	defer func() {Log("CALL","-",f.interfaceName + "." + f.elemName,strconv.Itoa(len(b))) }()
 	ret := f.InvokeI(injs,args...)
 	o := outgoingMessage{
 		CRID: id,

@@ -110,12 +110,10 @@ func AppendURL(context *HTTPContext, source string) string{
 
 func main() {
 	// Initialize the frontend.
-	frontend := NewFrontend(F_DEFAULT, map[int]string{
-		P_EXTERNALURL: "http://localhost:8080/gotojs"})
+	frontend := NewFrontend()
 
 	// Setup the service object.
 	service := Service{}
-
 
         // Declare some js code that is doing the calls. Usually this is done by a flat file in the public directory,
         // but in this case we would like to show how to use HandleStatic.
@@ -131,8 +129,7 @@ func main() {
 	frontend.ExposeFunction(AppendURL,"Service","AppendURL") // Name the function and expose it to existing interface.
 	frontend.Redirect("/", "/public/index.html")
 	frontend.HandleStatic("/my.js",myjs,"application/javascript")
-
-	log.Fatal(frontend.Start())
+	log.Fatal(frontend.Start(":8080","/gotojs"))
 }
 `),fflag);
 	check(err)

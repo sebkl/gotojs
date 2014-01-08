@@ -38,6 +38,7 @@ Next, fetch the gotojs package:
 
 ```
 go get github.com/sebkl/gotojs
+go get github.com/sebkl/gotojs/util
 ```
 
 and create a sample application tree:

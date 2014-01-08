@@ -119,15 +119,16 @@ func main() {
         // but in this case we would like to show how to use HandleStatic.
         myjs := "$(document).ready(function() {"
         myjs += "       var text = $('h1').html();"
-        myjs += "       text = PROXY.Service.UpperCase(text);" // Make the title uppcase by the server side implementation
-        myjs += "       text = PROXY.Service.AppendURL(text);" // Append the URL by the server side  implementation
+        myjs += "       text = GOTOJS.Service.UpperCase(text);" // Make the title uppcase by the server side implementation
+        myjs += "       text = GOTOJS.Service.AppendURL(text);" // Append the URL by the server side  implementation
         myjs += "       $('h1').html(text);"
         myjs += "});"
 
 	// Expose the interface and setup the request routing.
 	frontend.ExposeInterface(&service,"Service")
 	frontend.ExposeFunction(AppendURL,"Service","AppendURL") // Name the function and expose it to existing interface.
-	frontend.Redirect("/", "/public/index.html")
+	frontend.EnableFileServer("public","p")
+	frontend.Redirect("/","/p/")
 	frontend.HandleStatic("/my.js",myjs,"application/javascript")
 	log.Fatal(frontend.Start(":8080","/gotojs"))
 }

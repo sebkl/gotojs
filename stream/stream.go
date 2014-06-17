@@ -1,7 +1,10 @@
+// Package stream of GOTOJS offers an interface to expose event or message streams.
+// Stream implementations just need to implement the Source interface and define a Message type
+// which is encodable as JSON.
 package stream
 
 import (
-	. "github.com/sebkl/gotojs" 
+	. "github.com/sebkl/gotojs"
 	"log"
 	"fmt"
 	"time"
@@ -13,7 +16,7 @@ import (
 
 const (
 	DefaultSessionTimeout = 30 //in seconds
-	DefaultMaxRecordCount = 10000 //in count of stream
+	DefaultMaxRecordCount = 10000 //in count of messages
 )
 
 type Configuration struct {
@@ -28,6 +31,7 @@ type Stream struct {
 	config Configuration
 }
 
+//Internally used function to identifiy the users buffer cursor (called Stream) based on its GOTOJS session infromation.
 func (t *Stream) session(session *Session) (s *StreamSession) {
 	iid,_ := strconv.ParseInt(session.Get("ID"),10,64)
 	id := ID(iid)
@@ -47,6 +51,9 @@ func (t *Stream) session(session *Session) (s *StreamSession) {
 	return s
 }
 
+
+//Method to be exposed for message retrieval. Cursor information is stored in the users GOTOJS session.
+//Clients may frequently call this method to retrieve new messages.
 func (t *Stream) Next(session *Session) (ret []Message) {
 	t.lazyStart()
 	s := t.session(session)
@@ -60,6 +67,7 @@ func (t *Stream) Next(session *Session) (ret []Message) {
 	return
 }
 
+//Reset resets the users session. The cursor will be deleted and reinitialized.
 func (t* Stream) Reset(session *Session) {
 	s := t.session(session)
 	delete(t.sessions,s.Id)
@@ -82,6 +90,8 @@ func (t* Stream) lazyStart() {
 	}
 }
 
+
+//Internally used function to determine whether the source stream can be stopped since to more client stream are active.
 func (t* Stream) cleanup() {
 	log.Printf("Performing cleanup")
 	now := Timestamp(time.Now().UnixNano() / 1000)
@@ -99,6 +109,7 @@ func (t* Stream) cleanup() {
 	log.Printf("Cleanup done.")
 }
 
+//Internally used process loop to frequently perform a cleanup run.
 func (f* Stream) cleanupRunner() {
 	for ;; {
 		time.Sleep(10 * time.Second)
@@ -108,6 +119,9 @@ func (f* Stream) cleanupRunner() {
 	log.Printf("CleanupRunner stopped")
 }
 
+
+//NewStream creates a new Stream based on the given Source implementation.
+//The default configuration can be overwritten by a configuration file named "streamconfig.json"
 func NewStream(source Source) (t* Stream,err error) {
 	fetcher,err := NewFetcher(source) // just pass the source connection here.
 

@@ -1,3 +1,11 @@
+//Package twitter of GOTOJS/stream offers a stream implemenation for Twitter.
+//Currently it is based on the twitter location API which needs to be generalized.
+//
+//The client key/secret configuration for the actual twitter API can be made in a localfile
+// named "twitter_account.json"
+//
+// A sample file is provided with the source: "twitter_account.json.sample"
+
 package twitter
 
 import (
@@ -30,6 +38,8 @@ type TwitterSource struct {
 	configFile *os.File
 }
 
+
+//NewTwitterSource creates a new stream source based on the given configuration file.
 func NewTwitterSource(filename string) (ret *TwitterSource,err error) {
 	//Read twitter config from json file.
 	configFile, err := os.Open(filename)
@@ -45,6 +55,7 @@ func NewTwitterSource(filename string) (ret *TwitterSource,err error) {
 	return
 }
 
+//Next fetches the nex message from the source stream.
 func (s *TwitterSource) Next() (mes Message,err error) {
 	if s.conn == nil {
 		return mes, errors.New("Connection s not established.")
@@ -73,10 +84,12 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 	return
 }
 
+//Close interruptes the source stream. The connection to the twitter API is closed.
 func (s *TwitterSource) Close() {
 	s.conn.Close()
 }
 
+//Start starts the source stream. A connection to the twitter API is established.
 func (s *TwitterSource) Start() (err error) {
 	log.Println("Starting twitter stream.")
 	s.conn,err = s.client.Locations(twitterstream.Point{-90.0,-180.0}, twitterstream.Point{90.0,180.0})
@@ -86,6 +99,9 @@ func (s *TwitterSource) Start() (err error) {
 	return
 }
 
+
+//NewTwitterStream create a new GOTOJS stream implementation the is bound to the twitter API stream using
+// the default "twitter_account.json" configuration file.
 func NewTwitterStream() (stream *Stream, err error) {
 	tweetSource,err := NewTwitterSource("twitter_account.json")
 	if err != nil {
@@ -94,4 +110,3 @@ func NewTwitterStream() (stream *Stream, err error) {
 	stream,err = NewStream(tweetSource)
 	return
 }
-

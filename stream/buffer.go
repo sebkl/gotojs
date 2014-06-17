@@ -21,10 +21,12 @@ type Message struct {
 	Payload interface{} `json:"payload"`
 }
 
+//New returns a javascript compatible timestamp. (msecs since 1.1.1970, 0am) 
 func Now() (Timestamp){
 	return Timestamp(time.Now().UnixNano() / 1000)
 }
 
+//NewMessage instantiates an empty Message with the given payload.
 func NewMessage(payload interface{}) (Message) {
 	return Message{Id: 0, Time: Now(), Payload: payload}
 }
@@ -73,6 +75,7 @@ type Fetcher struct {
 	running bool
 }
 
+//NewBuffer initializes a new message ring-buffer.
 func NewBuffer(bsize uint) (buf *Buffer){
 	buf = new(Buffer)
 	buf.cid = 0
@@ -88,6 +91,7 @@ func NewBuffer(bsize uint) (buf *Buffer){
 	return
 }
 
+//NewFetcher creates a new fetcher which consits of a BacklogRunner process.
 func NewFetcher(source Source) (ret *Fetcher,err error) {
 	ret = &Fetcher{running: false, source: source}
 	ret.buf = NewBuffer(DefaultBufferSize)
@@ -101,12 +105,15 @@ func NewFetcher(source Source) (ret *Fetcher,err error) {
 	return
 }
 
+//Empty clears the entire buffer. All remaining messages will be discarded.
 func (b *Buffer) Empty() (*Buffer){
 	b.cid =0
 	b.buf = make([]Message,b.size)
 	return b
 }
 
+//Enqueue adds a message to the buffer. If the buffer is fully occupied it will be added to the beginning.
+//Thus it acts as a ringbuffer.
 func (b *Buffer) Enqueue(message Message) (*Buffer){
 	now := Now()
 	b.mutex.Lock()
@@ -126,10 +133,15 @@ func (b *Buffer) Enqueue(message Message) (*Buffer){
 	return b
 }
 
+//HasNext checks whether there are more messages in the queue after the given ID.
 func (b* Buffer) HasNext(id ID) bool {
 	return b.cid > id;
 }
 
+//Fetch returns a slice of Messages that fit the request criteria.
+// If no paramerter is given all available messages will be returned.
+// If one ID is given as parameter, all Messages starting from this ID will be returned.
+// If two IDs are given all messages between the first and the second will be returned.
 func (b* Buffer) Fetch(vals ...ID) (ret []Message) {
 	b.mutex.Lock()
 	var id,max ID
@@ -184,6 +196,7 @@ func (b* Buffer) Fetch(vals ...ID) (ret []Message) {
 	return
 }
 
+// Fetch puts a fetchrequest to the backlog queue. The BacklogRunner process is taking care for sending the actual data back to the clients.
 func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	if f.buf.HasNext(fr.id) {
 		ret = f.buf.Fetch(fr.id)
@@ -197,6 +210,7 @@ func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	return
 }
 
+//BacklogRunner is the worker loop that continously servers the client (fetch requests) with outstanding messages.
 func (f* Fetcher) BacklogRunner() {
 	log.Printf("Started BacklogRunner.")
 	for c:=0;;c++ {
@@ -217,6 +231,8 @@ func (f* Fetcher) BacklogRunner() {
 	log.Printf("BacklogRunner stopped")
 }
 
+//Start starts the fetcher loop. It blocks and takes all incoming messages and enqueues them to the buffer.
+//Start returns only if the stream is stopped.
 func (f *Fetcher) Start() (err error) {
 	log.Printf("Starting stream.")
 	if err = f.source.Start(); err != nil {

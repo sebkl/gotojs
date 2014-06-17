@@ -171,16 +171,16 @@ type Session struct {
 	dirty bool
 }
 
-
 //Flag2Param converts initialization flags to a string parameter.
 func Flag2Param(flag int) string{
 	return fmt.Sprintf("%d",flag)
 }
 
-
 // NewSession creates an empty fresh session object.
 func NewSession() *Session {
-	return &Session{Properties: make(Properties),dirty: false}
+	return &Session{
+		Properties: make(Properties),
+		dirty: false}
 }
 
 // SessionFromCookie reads a session object from the cookie.

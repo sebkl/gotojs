@@ -1,0 +1,249 @@
+package stream
+
+import (
+	"log"
+	"sync"
+	"time"
+	"container/list"
+)
+
+type Timestamp uint64
+type ID uint64
+
+const (
+	DefaultBufferSize = 12 //BitSize
+)
+
+type Message struct {
+	Id ID `json:"id"`
+	Time Timestamp`json:"time"`
+	DTime Timestamp `json:"dtime"`
+	Payload interface{} `json:"payload"`
+}
+
+func Now() (Timestamp){
+	return Timestamp(time.Now().UnixNano() / 1000)
+}
+
+func NewMessage(payload interface{}) (Message) {
+	return Message{Id: 0, Time: Now(), Payload: payload}
+}
+
+type Source interface {
+	Next() (Message, error)
+	Close()
+	Start() error
+}
+
+type Buffer struct {
+	cid ID //next free slot, last slot: buf[cid-1]
+	buf []Message
+	mutex sync.Mutex
+	mask ID
+	size ID
+}
+
+type StreamSession struct {
+	Id ID
+	Next ID
+	LastAccess Timestamp
+	Begin Timestamp
+}
+
+type FetchRequest struct {
+	id ID
+	s *StreamSession
+	q chan []Message
+	max ID
+}
+
+func NewFetchRequest(s *StreamSession) *FetchRequest{
+	return &FetchRequest{
+		id: s.Next,
+		s: s,
+		max: 0,
+		q: make(chan []Message) }
+}
+
+type Fetcher struct {
+	source Source
+	buf *Buffer
+	backlog *list.List
+	notify chan int
+	running bool
+}
+
+func NewBuffer(bsize uint) (buf *Buffer){
+	buf = new(Buffer)
+	buf.cid = 0
+	buf.size = 1 << (bsize)
+	buf.buf = make([]Message,buf.size)
+	buf.mask = 0
+
+	for i := bsize;i > 0; i-- {
+		buf.mask |= 1<<(i-1)
+	}
+
+	log.Printf("Initialized Buffer: %d/%x",buf.size,buf.mask)
+	return
+}
+
+func NewFetcher(source Source) (ret *Fetcher,err error) {
+	ret = &Fetcher{running: false, source: source}
+	ret.buf = NewBuffer(DefaultBufferSize)
+	ret.backlog = list.New()
+	ret.notify = make(chan int)
+
+	go func() {
+		ret.BacklogRunner()
+	}()
+
+	return
+}
+
+func (b *Buffer) Empty() (*Buffer){
+	b.cid =0
+	b.buf = make([]Message,b.size)
+	return b
+}
+
+func (b *Buffer) Enqueue(message Message) (*Buffer){
+	now := Now()
+	b.mutex.Lock()
+	id := b.cid & b.mask
+	ltime := now
+	if (id > 0) {
+		ltime = b.buf[id -1].Time
+	}
+
+	message.Id = b.cid
+	message.DTime =now - ltime
+
+	b.cid++
+	b.buf[id] = message
+
+	b.mutex.Unlock()
+	return b
+}
+
+func (b* Buffer) HasNext(id ID) bool {
+	return b.cid > id;
+}
+
+func (b* Buffer) Fetch(vals ...ID) (ret []Message) {
+	b.mutex.Lock()
+	var id,max ID
+	id = 0
+	max = 0
+
+	if len(vals) > 0 {
+		id = vals[0]
+	}
+
+	if len(vals) > 1 {
+		max = vals[1]
+	}
+
+	if (b.cid == 0 || id > b.cid) {
+		b.mutex.Unlock()
+		return
+	}
+
+	cid := b.cid - 1
+
+	if max > 0 && (id + max) < cid {
+		cid = id + (max-1)
+	}
+
+	from := ID(id & b.mask)
+	to := ID(cid & b.mask)
+	diff := int64(cid) - int64(id)
+	mdiff := (int64(from) - int64(to) )
+	if (mdiff < 0) {
+		mdiff = int64(to -from)
+	}
+
+	if (diff > mdiff) {
+		from = to + 1
+	}
+
+	if (from > to && cid != 0) {
+		a1 := ID(from)
+		a2 := ID(b.size - 1)
+		b1 := ID(0)
+		b2 := ID(to)
+		s := (b.size - from) + to + 1
+		ret = make([]Message,s)
+
+		copy(ret[0:(a2-a1) + 1],b.buf[a1:a2 + 1])
+		copy(ret[(a2-a1) + 1:s],b.buf[b1:b2 + 1])
+	} else {
+		ret = b.buf[from:to + 1]
+	}
+	b.mutex.Unlock()
+	return
+}
+
+func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
+	if f.buf.HasNext(fr.id) {
+		ret = f.buf.Fetch(fr.id)
+	} else {
+		// Reduce offset to 1 in order to avoid future requests
+		fr.id = f.buf.cid +1
+		f.backlog.PushBack(fr)
+
+		ret = <-fr.q
+	}
+	return
+}
+
+func (f* Fetcher) BacklogRunner() {
+	log.Printf("Started BacklogRunner.")
+	for c:=0;;c++ {
+		<-f.notify
+		for e := f.backlog.Front(); e != nil; e = e.Next() {
+			fr, ok := e.Value.(*FetchRequest)
+			if ok {
+				if f.buf.HasNext(fr.id) {
+					fr.q <- f.buf.Fetch(fr.id)
+					f.backlog.Remove(e)
+				}
+			} else {
+				log.Printf("Backlog contains invalid element type.")
+				f.backlog.Remove(e)
+			}
+		}
+	}
+	log.Printf("BacklogRunner stopped")
+}
+
+func (f *Fetcher) Start() (err error) {
+	log.Printf("Starting stream.")
+	if err = f.source.Start(); err != nil {
+		return
+	}
+
+	f.running = true
+	for ;f.running; {
+		message,err := f.source.Next()
+		if (err == nil) {
+			f.buf.Enqueue(message)
+			f.notify<-1
+		} else {
+			log.Printf("Could not fetch next message from source. %s",err)
+		}
+	}
+	log.Printf("Stream has stopped.")
+	f.buf.Empty()
+	return
+}
+
+// Stop interrupts the source stream. No more data is enqueued to the buffer anymore until Start() is called.
+// This method is used when the system identifies that no more clients have subscribed to the stream.
+func (f *Fetcher) Stop() {
+	if f.running {
+		log.Printf("Stopping stream.")
+		f.running = false
+		f.source.Close()
+	}
+}

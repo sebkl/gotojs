@@ -73,7 +73,7 @@ const (
 	DefaultListenAddress = "localhost:8080"
 	DefaultFileServerDir = "public"
 	DefaultFileServerContext = "public"
-	DegaultExternalBaseURL = "http://" + DefaultListenAddress
+	DefaultExternalBaseURL = "http://" + DefaultListenAddress
 	DefaultBasePath = "."
 	DefaultCookieName = "gotojs"
 	DefaultCookiePath = "/gotojs"

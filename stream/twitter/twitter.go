@@ -29,6 +29,8 @@ type Tweet  struct {
 	Lat float64 `json:"lat"`
 	Text string `json:"text"`
 	Sender string `json:"sender"`
+	Retweet bool `json:"retweet"`
+	Images []string `json:"images"`
 }
 
 type TwitterSource struct {
@@ -37,7 +39,6 @@ type TwitterSource struct {
 	client *twitterstream.Client
 	configFile *os.File
 }
-
 
 //NewTwitterSource creates a new stream source based on the given configuration file.
 func NewTwitterSource(filename string) (ret *TwitterSource,err error) {
@@ -79,6 +80,23 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 		} else {
 			return mes, errors.New("Invalid tweet.")
 		}
+
+		//Check if some images are attached as Entities to the tweet.
+		if len(tweet.Entities.Media) > 0 {
+			iu := make([]string,len(tweet.Entities.Media))
+			c := 0;
+			for _,v := range tweet.Entities.Media {
+				if v.Type == "photo" {
+					iu[c] = v.MediaUrl
+					c++
+					//log.Println(v.MediaUrl)
+				}
+			}
+			payload.Images = iu[:c]
+		}
+
+		payload.Retweet = tweet.RetweetedStatus != nil
+
 		mes = NewMessage(payload)
 	}
 	return
@@ -107,6 +125,7 @@ func NewTwitterStream() (stream *Stream, err error) {
 	if err != nil {
 		return
 	}
+
 	stream,err = NewStream(tweetSource)
 	return
 }

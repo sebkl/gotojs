@@ -1,7 +1,6 @@
-package gotojs_test
+package gotojs
 import (
 	"testing"
-	. "gotojs"
 	"log"
 	//"fmt"
 )

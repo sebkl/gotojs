@@ -1,9 +1,8 @@
-package gotojs_test
+package gotojs
 
 import(
 	"encoding/base64"
 	"testing"
-	. "gotojs"
 )
 
 func TestArrayContains(t *testing.T) {

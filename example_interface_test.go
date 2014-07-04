@@ -1,10 +1,9 @@
-package gotojs_test
+package gotojs
 
 import (
 	"fmt"
 	"log"
 	"time"
-	. "gotojs"
 )
 
 // Declare Service to be exposed.

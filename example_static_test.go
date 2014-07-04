@@ -1,4 +1,4 @@
-package gotojs_test
+package gotojs
 
 import (
 	"net/http"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"bytes"
-	. "gotojs"
 )
 
 func ExampleFrontend_static() {

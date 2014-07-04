@@ -1,11 +1,10 @@
-package gotojs_test
+package gotojs
 
 import(
 	"fmt"
 	"time"
 	"net/http/cookiejar"
 	"net/http"
-	. "gotojs"
 )
 
 func ExampleFrontend_session() {

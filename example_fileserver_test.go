@@ -1,4 +1,4 @@
-package gotojs_test
+package gotojs
 
 import (
 	"net/http"
@@ -8,7 +8,6 @@ import (
 	"os"
 	"bytes"
 	"io/ioutil"
-	. "gotojs"
 )
 
 func ExampleFrontend_fileserver() {

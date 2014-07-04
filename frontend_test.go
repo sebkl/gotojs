@@ -1,4 +1,4 @@
-package gotojs_test
+package gotojs
 
 import (
 	"testing"
@@ -8,7 +8,6 @@ import (
 	"errors"
 	"encoding/json"
 	"net/http"
-	. "gotojs"
 )
 
 const (

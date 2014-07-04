@@ -44,7 +44,7 @@ func (t *Stream) session(session *Session) (s *StreamSession) {
 			Begin: Timestamp(time.Now().UnixNano() / 1000)}
 		session.Set("ID",fmt.Sprintf("%d",fmt.Sprintf("%d",nid)))
 		log.Printf("Created with session with id: %d", nid)
-		t.sessions[id] = s
+		t.sessions[nid] = s
 	} else {
 		s = t.sessions[id]
 	}

@@ -42,7 +42,7 @@ func (t *Stream) session(session *Session) (s *StreamSession) {
 			Id: nid,
 			Next: t.fetcher.buf.cid,
 			Begin: Timestamp(time.Now().UnixNano() / 1000)}
-		session.Set("ID",fmt.Sprintf("%d",fmt.Sprintf("%d",nid)))
+		session.Set("ID",fmt.Sprintf("%d",nid))
 		log.Printf("Created with session with id: %d", nid)
 		t.sessions[nid] = s
 	} else {

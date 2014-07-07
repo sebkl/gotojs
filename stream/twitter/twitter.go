@@ -11,10 +11,16 @@ package twitter
 import (
 	. "github.com/sebkl/gotojs/stream"
 	"github.com/sebkl/twitterstream"
+	"github.com/sebkl/imgurl"
 	"log"
 	"os"
 	"encoding/json"
 	"errors"
+)
+
+
+const (
+	THUMBNAIL_SIZE = 100
 )
 
 type twitterConfiguration struct {
@@ -31,6 +37,7 @@ type Tweet  struct {
 	Sender string `json:"sender"`
 	Retweet bool `json:"retweet"`
 	Images []string `json:"images"`
+	Thumbnail string `json:"thumbnail"`
 }
 
 type TwitterSource struct {
@@ -38,6 +45,7 @@ type TwitterSource struct {
 	conn *twitterstream.Connection
 	client *twitterstream.Client
 	configFile *os.File
+	transcoder *imgurl.TranscodeService
 }
 
 //NewTwitterSource creates a new stream source based on the given configuration file.
@@ -52,52 +60,81 @@ func NewTwitterSource(filename string) (ret *TwitterSource,err error) {
 	ret = &TwitterSource{
 		config: config,
 		configFile: configFile,
+		transcoder: imgurl.NewTranscodeService(5),
 		client: client }
 	return
 }
 
 //Next fetches the nex message from the source stream.
 func (s *TwitterSource) Next() (mes Message,err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("Recovered in Next", r)
+			err = errors.New("Panic in Next call.")
+		}
+	}()
+
 	if s.conn == nil {
 		return mes, errors.New("Connection s not established.")
 	}
 
-	if tweet,err := s.conn.Next(); err == nil {
-		var payload *Tweet
-
-		if (tweet.Coordinates != nil) {
-			payload = &Tweet{
-				Long: float64(tweet.Coordinates.Long),
-				Lat: float64(tweet.Coordinates.Lat),
-				Text: tweet.Text,
-				Sender: tweet.User.ScreenName }
-		} else if (tweet.Place != nil && tweet.Place != nil) {
-			payload = &Tweet{
-				Long: float64(tweet.Place.BoundingBox.Points[0].Long) ,
-				Lat: float64(tweet.Place.BoundingBox.Points[0].Lat),
-				Text: tweet.Text,
-				Sender: tweet.User.ScreenName }
-		} else {
-			return mes, errors.New("Invalid tweet.")
-		}
-
-		//Check if some images are attached as Entities to the tweet.
-		if len(tweet.Entities.Media) > 0 {
-			iu := make([]string,len(tweet.Entities.Media))
-			c := 0;
-			for _,v := range tweet.Entities.Media {
-				if v.Type == "photo" {
-					iu[c] = v.MediaUrl
-					c++
-					//log.Println(v.MediaUrl)
-				}
+	for ;err == nil; {
+		//Take from transcoder queue
+		for ;len(s.transcoder.Out) > 0; {
+			res := <-s.transcoder.Out
+			if tweet,ok := res.Payload.(*Tweet); ok {
+				//TODO: check other images too
+				tweet.Thumbnail = res.Image
+				mes = NewMessage(res.Payload)
+				return
+			} else {
+				log.Printf("Invalid payload in transcoding eesponse. Ignoring.")
 			}
-			payload.Images = iu[:c]
 		}
 
-		payload.Retweet = tweet.RetweetedStatus != nil
+		//Fetch from Twitter stream
+		if  tweet,err := s.conn.Next(); err == nil {
+			var payload *Tweet
 
-		mes = NewMessage(payload)
+			if (tweet.Coordinates != nil) {
+				payload = &Tweet{
+					Long: float64(tweet.Coordinates.Long),
+					Lat: float64(tweet.Coordinates.Lat),
+					Text: tweet.Text,
+					Sender: tweet.User.ScreenName }
+			} else if (tweet.Place != nil && tweet.Place != nil) {
+				payload = &Tweet{
+					Long: float64(tweet.Place.BoundingBox.Points[0].Long) ,
+					Lat: float64(tweet.Place.BoundingBox.Points[0].Lat),
+					Text: tweet.Text,
+					Sender: tweet.User.ScreenName }
+			} else {
+				//return mes, err = errors.New("Invalid tweet.")
+				log.Printf("Invlid tweet received. Ignoring.")
+				continue
+			}
+
+			payload.Retweet = tweet.RetweetedStatus != nil
+
+			//Check if some images are attached as Entities to the tweet.
+			if len(tweet.Entities.Media) > 0 {
+				iu := make([]string,len(tweet.Entities.Media))
+				c := 0;
+				for _,v := range tweet.Entities.Media {
+					if v.Type == "photo" {
+						iu[c] = v.MediaUrl
+						c++
+						//log.Println(v.MediaUrl)
+					}
+				}
+				payload.Images = iu[:c]
+				//TODO: change imgurl o be capable of transcoding multiple images per request.
+				s.transcoder.In <- &imgurl.Request{Url: iu[0],Payload: payload,Maxheight: THUMBNAIL_SIZE, Maxwidth: THUMBNAIL_SIZE}
+			} else {
+				mes = NewMessage(payload)
+				return mes, err
+			}
+		}
 	}
 	return
 }

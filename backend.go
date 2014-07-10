@@ -296,6 +296,12 @@ func (b *Backend) ExposeMethods(i interface{},pattern string, name ...string) (r
 		}
 
 		mn := mt.Name
+		/* Sanity check if method is Accessible: */
+		if matched,_ := regexp.Match("^[A-Z]",[]byte(mn)); !matched {
+			log.Printf("Ignoring internal method \"%s\".",mn)
+			continue
+		}
+
 		// If a pattern is given, check the method name first.
 		if  matched,_ := regexp.Match(pattern,[]byte(mn)); len(pattern) == 0 || matched {
 			pm := b.NewBinding(i,MethodBinding,x,n,mn)

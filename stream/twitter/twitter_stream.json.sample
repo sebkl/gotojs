@@ -1,0 +1,7 @@
+{
+	"ThumbnailMethod": "dataurl",
+	"ThumbnailSize": 100,
+	"NudeFilter": false,
+	"TranscodeWorker": 5,
+	"TranscodeBuffer": 20
+}

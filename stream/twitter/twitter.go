@@ -16,11 +16,9 @@ import (
 	"os"
 	"encoding/json"
 	"errors"
-)
-
-
-const (
-	THUMBNAIL_SIZE = 100
+	"bytes"
+	"fmt"
+	"net/url"
 )
 
 type twitterConfiguration struct {
@@ -38,29 +36,80 @@ type Tweet  struct {
 	Retweet bool `json:"retweet"`
 	Images []string `json:"images"`
 	Thumbnail string `json:"thumbnail"`
+	IsNude bool `json:"isnude"`
+	IsSensitive bool `json:"issensitive"`
+}
+
+type TwitterStreamConfig struct {
+	ThumbnailMethod string `json:"ThumbnailMethod"` // [api,url,dataurl]
+	ThumbnailSize int `json:"ThumbnailSize"`
+	ThumbnailAPICall string `json:"ThumbnailAPICall"`
+	NudeFilter bool `json:"NudeFilter"`
+	TranscodeWorker int `json:"TranscodeWorker"`
+	TranscodeBuffer int `json:"TranscodeBuffer"`
+	BaseUrl string `json:"BaseUrl"`
+}
+
+func (s *TwitterStreamConfig) JSON() string {
+	buf := new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+	encoder.Encode(s)
+	return buf.String()
+}
+
+func (s *TwitterStreamConfig) APIUrl(u string) string {
+	return fmt.Sprintf("%s%s",s.BaseUrl,fmt.Sprintf(s.ThumbnailAPICall,url.QueryEscape(u),s.ThumbnailSize,s.ThumbnailSize))
 }
 
 type TwitterSource struct {
 	config *twitterConfiguration
+	streamConfig *TwitterStreamConfig
 	conn *twitterstream.Connection
 	client *twitterstream.Client
 	configFile *os.File
+	streamFile *os.File
 	transcoder *imgurl.TranscodeService
+	baseUrl string
 }
 
 //NewTwitterSource creates a new stream source based on the given configuration file.
-func NewTwitterSource(filename string) (ret *TwitterSource,err error) {
+func NewTwitterSource(account,stream,baseUrl string) (ret *TwitterSource,err error) {
 	//Read twitter config from json file.
-	configFile, err := os.Open(filename)
+	configFile, err := os.Open(account)
+	if err != nil {
+		return
+	}
+
 	decoder := json.NewDecoder(configFile)
 	config := &twitterConfiguration{}
 	decoder.Decode(config)
+
+	//Read stream config from json file.
+	streamConfig := &TwitterStreamConfig{
+		ThumbnailMethod: "dataurl",
+		ThumbnailSize: 100,
+		NudeFilter: false,
+		TranscodeWorker: 5,
+		TranscodeBuffer: 10,
+		ThumbnailAPICall: "/Image/Thumbnail?p=%s&p=%d&p=%d",
+		BaseUrl:baseUrl }
+	streamFile, err := os.Open(stream)
+	// If config cannot be read use default values
+	if err == nil {
+		decoder = json.NewDecoder(streamFile)
+		decoder.Decode(streamConfig)
+		err = nil
+		log.Printf("Twitterstream configuration: %s",streamConfig.JSON())
+	}
+
 	client := twitterstream.NewClient(config.APIKey,config.APISecret,config.AccessToken,config.AccessSecret)
 
 	ret = &TwitterSource{
 		config: config,
 		configFile: configFile,
-		transcoder: imgurl.NewTranscodeService(5),
+		streamFile: streamFile,
+		streamConfig: streamConfig,
+		transcoder: imgurl.NewTranscodeService(streamConfig.TranscodeWorker,streamConfig.TranscodeBuffer),
 		client: client }
 	return
 }
@@ -80,15 +129,20 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 
 	for ;err == nil; {
 		//Take from transcoder queue
-		for ;len(s.transcoder.Out) > 0; {
-			res := <-s.transcoder.Out
+		for ;s.transcoder.Ready(); {
+			res := s.transcoder.Get()
 			if tweet,ok := res.Payload.(*Tweet); ok {
 				//TODO: check other images too
 				tweet.Thumbnail = res.Image
-				mes = NewMessage(res.Payload)
+				if res.Tags != nil && len(res.Tags) > 0 {
+					if in,ok := res.Tags[0].(bool);ok {
+						tweet.IsNude = in
+					}
+				}
+				mes = NewMessage(tweet)
 				return
 			} else {
-				log.Printf("Invalid payload in transcoding eesponse. Ignoring.")
+				log.Printf("Invalid payload in transcoding Response. Ignoring.")
 			}
 		}
 
@@ -101,12 +155,14 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 					Long: float64(tweet.Coordinates.Long),
 					Lat: float64(tweet.Coordinates.Lat),
 					Text: tweet.Text,
+					IsSensitive: *tweet.PossiblySensitive,
 					Sender: tweet.User.ScreenName }
 			} else if (tweet.Place != nil && tweet.Place != nil) {
 				payload = &Tweet{
 					Long: float64(tweet.Place.BoundingBox.Points[0].Long) ,
 					Lat: float64(tweet.Place.BoundingBox.Points[0].Lat),
 					Text: tweet.Text,
+					IsSensitive: *tweet.PossiblySensitive,
 					Sender: tweet.User.ScreenName }
 			} else {
 				//return mes, err = errors.New("Invalid tweet.")
@@ -117,7 +173,8 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 			payload.Retweet = tweet.RetweetedStatus != nil
 
 			//Check if some images are attached as Entities to the tweet.
-			if len(tweet.Entities.Media) > 0 {
+			//If transcoding buffer is full, this image will ignored.
+			if len(tweet.Entities.Media) > 0 && !s.transcoder.Full(){
 				iu := make([]string,len(tweet.Entities.Media))
 				c := 0;
 				for _,v := range tweet.Entities.Media {
@@ -129,11 +186,31 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 				}
 				payload.Images = iu[:c]
 				//TODO: change imgurl o be capable of transcoding multiple images per request.
-				s.transcoder.In <- &imgurl.Request{Url: iu[0],Payload: payload,Maxheight: THUMBNAIL_SIZE, Maxwidth: THUMBNAIL_SIZE}
-			} else {
-				mes = NewMessage(payload)
-				return mes, err
+
+				var filter []imgurl.Filter
+				if s.streamConfig.NudeFilter {
+					filter = []imgurl.Filter{imgurl.NudeFilter}
+				}
+
+				switch s.streamConfig.ThumbnailMethod {
+					case "api":
+						payload.Thumbnail = s.streamConfig.APIUrl(iu[0])
+					case "url":
+						payload.Thumbnail = iu[0]
+					default:
+						req := &imgurl.Request{
+							Url: iu[0],
+							Payload: payload,
+							Filters: filter,
+							Maxheight: s.streamConfig.ThumbnailSize,
+							Maxwidth: s.streamConfig.ThumbnailSize }
+
+						s.transcoder.Push(req)
+						continue
+				}
 			}
+
+			return NewMessage(payload), err
 		}
 	}
 	return
@@ -154,11 +231,10 @@ func (s *TwitterSource) Start() (err error) {
 	return
 }
 
-
 //NewTwitterStream create a new GOTOJS stream implementation the is bound to the twitter API stream using
 // the default "twitter_account.json" configuration file.
-func NewTwitterStream() (stream *Stream, err error) {
-	tweetSource,err := NewTwitterSource("twitter_account.json")
+func NewTwitterStream(baseUrl string) (stream *Stream, err error) {
+	tweetSource,err := NewTwitterSource("twitter_account.json","twitter_stream.json",baseUrl)
 	if err != nil {
 		return
 	}

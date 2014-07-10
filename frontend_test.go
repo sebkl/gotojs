@@ -8,6 +8,7 @@ import (
 	"errors"
 	"encoding/json"
 	"net/http"
+	"io/ioutil"
 )
 
 const (
@@ -53,7 +54,7 @@ func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error)
 	cmd.Stderr = &buf
 	err = cmd.Start()
 	stdin.Write([]byte(nodeRequire)) // Load dependency to simulate domtree.
-	frontend.Build(stdin)
+	frontend.build("http://localhost:8786/gotojs","jquery",stdin)
 	for _,s := range postCmd {
 		n,err := stdin.Write([]byte(s));
 		if err!= nil || n!=len(s) {
@@ -107,14 +108,14 @@ func TestValidationStringWithInjection(t *testing.T) {
 }
 
 type TestService3 struct{}
-func (ts *TestService3) test(a,b,c string,session *Session) string{
+func (ts *TestService3) Test(a,b,c string,session *Session) string{
 	return a + b + c;
 }
 
 func TestValidationStringWithInjectionAndInterfaceExposure(t *testing.T) {
 	frontend.ExposeInterface(&TestService3{})
 	defer frontend.RemoveInterface("TestService3")
-	vs := frontend.BindingContainer["TestService3"]["test"].ValidationString();
+	vs := frontend.BindingContainer["TestService3"]["Test"].ValidationString();
 	if len(vs) != 3 {
 		t.Errorf("Incorrect validation string: \"%s\"/\"%s\"",vs,"sss");
 	}
@@ -271,7 +272,9 @@ func TestGETCall(t *testing.T) {
 		panic(e)
 	}
 	if r.StatusCode != 200 {
-		t.Errorf("GET invocation failed with status code: %d/%d",r.StatusCode,200)
+		defer r.Body.Close()
+		body, _ := ioutil.ReadAll(r.Body)
+		t.Errorf("GET invocation failed with status code: %d/%d %s",r.StatusCode,200,body)
 	}
 
 }
@@ -282,7 +285,51 @@ func TestWiredGETCall(t *testing.T) {
 		panic(e)
 	}
 	if r.StatusCode != 200 {
-		t.Errorf("GET invocation failed with status code: %d/%d",r.StatusCode,200)
+
+		defer r.Body.Close()
+		body, _ := ioutil.ReadAll(r.Body)
+		t.Errorf("GET invocation failed with status code: %d/%d %s",r.StatusCode,200,body)
+	}
+}
+
+type ImageBinary struct {
+	buf *bytes.Buffer
+	mimetype string
+}
+
+func (i ImageBinary) Close() error {return nil}
+func (i ImageBinary) Read(p []byte) (int,error) { return i.buf.Read(p) }
+func (i ImageBinary) MimeType() string { return i.mimetype }
+
+func TestWiredBinaryCall(t *testing.T) {
+	mt := "image/png"
+	frontend.ExposeFunction( func (c int) (ret Binary) {
+		b :=make([]byte, c)
+		for i,_ := range b {
+			b[i] = '_'
+		}
+		ret = ImageBinary{buf: bytes.NewBuffer(b), mimetype: mt}
+		return
+	},"X","GenImage")
+
+	r,e := http.Get("http://localhost:8786/gotojs/X/GenImage/5")
+	if (e != nil) {
+		panic(e)
+	}
+
+	defer r.Body.Close()
+	body, _ := ioutil.ReadAll(r.Body)
+
+	if r.StatusCode != 200 {
+		t.Errorf("Binary GET failed with status code: %d/%d %s",r.StatusCode,200,body)
+	}
+
+	if len(body) != 5 {
+		t.Errorf("Binary GET failed. Incorrect body size : %d/%d",len(body),5)
+	}
+	rmt := r.Header.Get("Content-Type")
+	if rmt != mt { //TODO: change contains to equals
+		t.Errorf("Binary GET failed. Incorrect mime type: %s,%s",rmt,mt)
 	}
 }
 

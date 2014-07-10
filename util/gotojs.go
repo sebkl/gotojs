@@ -40,12 +40,17 @@ func exportTemplates(path string) {
 	fflag := os.FileMode(0644)
 
 	temp := DefaultTemplates()
-	err := ioutil.WriteFile(path + "/" + Template,[]byte(temp.Binding),fflag);
-	check(err)
-	err = ioutil.WriteFile(path + "/" + InterfaceTemplate,[]byte(temp.Interface),fflag);
-	check(err)
-	err = ioutil.WriteFile(path + "/" + MethodTemplate,[]byte(temp.Method),fflag);
-	check(err)
+
+	for p,t := range temp {
+		err := ioutil.WriteFile(path + "/" + p + "/" + HTTPTemplate,[]byte(t.HTTP),fflag);
+		check(err)
+		err = ioutil.WriteFile(path + "/" + p + "/" + BindingTemplate,[]byte(t.Binding),fflag);
+		check(err)
+		err = ioutil.WriteFile(path + "/" + p + "/" + InterfaceTemplate,[]byte(t.Interface),fflag);
+		check(err)
+		err = ioutil.WriteFile(path + "/" + p + "/" + MethodTemplate,[]byte(t.Method),fflag);
+		check(err)
+	}
 }
 
 func createBaseDirs(path string) {
@@ -53,10 +58,14 @@ func createBaseDirs(path string) {
 	check(err)
 	err = os.MkdirAll(path + "/" + DefaultFileServerDir,dflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + RelativePath,dflag)
+	err = os.MkdirAll(path + "/" + RelativeTemplatePath,dflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + RelativeLibPath,dflag)
-	check(err)
+	for _,p := range Platforms {
+		err = os.MkdirAll(path + "/" + RelativeTemplatePath + "/" + p,dflag)
+		check(err)
+		err = os.MkdirAll(path + "/" + RelativeTemplatePath + "/" + p + "/" + RelativeTemplateLibPath,dflag)
+		check(err)
+	}
 }
 
 func createSampleFiles(path string) {
@@ -150,10 +159,10 @@ func main() {
 	switch cmd {
 		case "example":
 			createSampleFiles(arg)
-			exportTemplates(arg + "/" + RelativePath)
+			exportTemplates(arg + "/" + RelativeTemplatePath)
 		case "create":
 			createBaseDirs(arg)
-			exportTemplates(arg + "/" + RelativePath)
+			exportTemplates(arg + "/" + RelativeTemplatePath)
 		case "export":
 			exportTemplates(arg)
 		default:

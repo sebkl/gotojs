@@ -1,41 +1,84 @@
 package gotojs
 
-
 // Conatins all loaded templates and references to external JS libraries.
-type Templates struct {
-	Binding,Interface,Method string
+type Template struct {
+	HTTP,Binding,Interface,Method string
 	Libraries []string
 }
 
+//Templates per engine (jquery, nodejs) etc
+type Templates map[string]*Template
 
 // DefaultTemplates returns the collection of internal Javascript templates for the generation of the JS engine.
-func DefaultTemplates() *Templates {
-	return &defaultTemplates
+func DefaultTemplates() (ret Templates) {
+	ret = make(Templates)
+	ret["jquery"] = &defaultTemplate
+	ret["nodejs"] = &defaultNodeJSTemplate
+	return
 }
 
-var defaultTemplates = Templates {
+var Platforms = []string{"jquery","nodejs"}
+
+var defaultTemplate = Template {
+	HTTP:`
+/* ### JS/HTTP jquery #### */
+var {{.NS}} = {{.NS}} || {
+	'HTTP': {
+		Post: function(crid,url,i,m,args,data,callback) {
+			var ret;
+			$.ajax( {
+				type: 'POST',
+				url: url,
+				data: data,
+				success: function(d) {
+					if (typeof(d) =='string') {
+						ret = eval('(' + d + ')');
+					} else {
+						ret = d;
+					}
+					if (ret['Data'] && ret['CRID'] == crid) {
+						ret = ret['Data']
+						if (callback) {
+							callback(ret);
+						} 
+					} else {
+						throw ("IFAIL["+crid+"] \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + ret);
+					}
+				},
+				async: callback !== undefined,
+				error: function(o,estring,e) {
+					throw /*console.log*/("FAIL : \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + e);
+				}
+			});
+			return ret;
+		}
+	}
+}
+`,
 	Binding: `
 /* #### JS/BINDING #### */
-var {{.NS}} = {{.NS}} || {
-	'TYPES': {
+var {{.NS}} = {{.NS}} || {};
+{{.NS}}.TYPES={
 		'INTERFACES': {/* will be filled by interface templates */},
 		'Proxy': function () {
 			/* Attributes */
 			this.callCounter = 0;
 		}
-	},
-	'CONST': {
+	};
+
+
+{{.NS}}.CONST={
 		'ALPHA':"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	},
-	'HELPER': {
+	};
+
+{{.NS}}.HELPER={
 		createCHASH: function makeid() {
 			var ret = "";	
 			for( var i=0; i < 10; i++ )
 				ret += {{.NS}}.CONST.ALPHA.charAt(Math.floor(Math.random() * {{.NS}}.CONST.ALPHA.length));
 			return ret.toUpperCase();
 		}
-	}
-}
+	};
 
 {{.NS}}.CONST.CHASH = {{.NS}}.HELPER.createCHASH()
 	
@@ -43,12 +86,7 @@ var {{.NS}} = {{.NS}} || {
 	/*Methods */
 	constructor: {{.NS}}.TYPES.Proxy,
 	call: function(i,m,args) {
-{{if .BU}}
-		var url ="{{.BU}}/"+i+"/"+m;
-
-{{else}}
 		var url ="{{.BC}}/"+i+"/"+m;
-{{end}}
 		var callback = undefined;
 		if (this.hasCallback(args)) {
 			callback = args.pop();
@@ -61,32 +99,8 @@ var {{.NS}} = {{.NS}} || {
 		    	'CRID': crid,
 		    	'Data': args
 		});
-		var ret;
-                $.ajax( {
-                        type: 'POST',
-                        url: url,
-                        data: data,
-                        success: function(d) {
-				if (typeof(d) =='string') {
-                                        ret = eval('(' + d + ')');
-                                } else {
-                                        ret = d;
-                                }
-				if (ret['Data'] && ret['CRID'] == crid) {
-					ret = ret['Data']
-					if (callback) {
-						callback(ret);
-					} 
-				} else {
-					throw ("IFAIL["+crid+"] \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + ret);
-				}
-                        },
-			async: callback !== undefined,
-                	error: function(o,estring,e) {
-				throw /*console.log*/("FAIL : \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + e);
-			}
-		});
-		return ret;
+
+		return {{.NS}}.HTTP.Post(crid,url,i,m,args,data,callback);
 	},
 	hasCallback: function(args) {
 		return (typeof args[args.length-1] == 'function')
@@ -176,4 +190,57 @@ var {{.NS}} = {{.NS}} || {
 	return this.call("{{.MN}}",args);
 };
 `,
-	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"}}
+	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }
+
+var defaultNodeJSTemplate = Template{
+	HTTP: `
+var {{.NS}} = {{.NS}} || {
+	'HTTP': {
+		Request: require('request'),
+		URL: "{{.BC}}",
+		Jar: null,
+		Post: function(crid,url,i,m,args,data,callback) {
+			var ret = { state: "loading",data: null };
+			if (callback === undefined) {
+				callback = function(d) { console.log(d); ret.data = d;ret.state="finished";}
+			}
+			this.Request({
+				uri: this.URL + "/" + i + "/" + m,
+				method: "POST",
+				jar: this.Jar,
+				headers: {'content-type' : 'application/json'},
+				timeout: 10000,
+				body: data,
+				followRedirect: true
+			}, function(error, response, d) {
+				if (error) {
+					throw ("FAIL1["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + error);
+				}
+
+				if (typeof(d) =='string') {
+					try {
+						ret.data = eval('(' + d + ')');
+					} catch (e) {
+						throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
+					}
+				} else {
+					ret.data = d;
+				}
+
+				if (ret.data['Data'] && ret.data['CRID'] == crid) {
+					callback(ret.data['Data']);
+				} else {
+					throw ("FAIL3["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + ret);
+				}
+			});
+			return ret;
+		}
+	}
+};
+{{.NS}}.HTTP.Jar = {{.NS}}.HTTP.Request.jar();
+GLOBAL.{{.NS}} = {{.NS}};
+`,
+	Binding:  defaultTemplate.Binding,
+	Interface: defaultTemplate.Interface,
+	Method: defaultTemplate.Method,
+	Libraries: []string{} }

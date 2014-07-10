@@ -32,6 +32,8 @@ import (
 	"encoding/base64"
 	"strconv"
 	"compress/flate"
+	"io/ioutil"
+	"runtime/debug"
 )
 
 // Configuration flags.
@@ -62,9 +64,10 @@ const (
 
 // Internally used constants and default values
 const (
-	RelativePath = "templates/js"
-	RelativeLibPath = "templates/js/libs"
-	Template= "binding.js"
+	RelativeTemplatePath = "templates"
+	RelativeTemplateLibPath = "libs"
+	HTTPTemplate = "http.js"
+	BindingTemplate= "binding.js"
 	InterfaceTemplate= "interface.js"
 	MethodTemplate= "method.js"
 	DefaultNamespace = "GOTOJS"
@@ -77,6 +80,8 @@ const (
 	DefaultBasePath = "."
 	DefaultCookieName = "gotojs"
 	DefaultCookiePath = "/gotojs"
+	DefaultPlatform = "jquery"
+	DefaultMimeType = "application/json"
 
 	tokenNamespace = "NS"
 	tokenInterfaceName = "IN"
@@ -84,7 +89,6 @@ const (
 	tokenBaseContext = "BC"
 	tokenArgumentsString = "AS"
 	tokenValidateArguments = "MA"
-	tokenBaseURL = "BU"
 )
 
 // Mapping of kind to char for method/function signature validation string.
@@ -131,15 +135,24 @@ type errorMessage struct {
 }
 
 type cache struct {
-	engine,libraries string
+	engine string
+	libraries string
 	revision uint64
+}
+
+// Return interface which allows to return binary content with a specific mime type 
+// non json encoded
+type Binary interface {
+	io.ReadCloser
+	MimeType() string
 }
 
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
 // HTTP facade of "gotojs".
 type Frontend struct {
 	Backend //inherit from BindingContainer and extend
-	template *template.Template
+	templateSource Templates
+	template map[string]*template.Template
 	namespace string
 	context string
 	extUrl *url.URL
@@ -148,7 +161,7 @@ type Frontend struct {
 	mux *http.ServeMux
 	httpd *http.Server
 	addr string
-	cache cache
+	cache map[string]*cache
 	publicDir string
 	publicContext string
 	fileServer http.Handler
@@ -303,12 +316,20 @@ func NewFrontend(args ...Parameters) (*Frontend){
 		flags: F_DEFAULT,
 		extUrl: nil,
 		addr: DefaultListenAddress,
+		templateSource: DefaultTemplates(),
 		templateBasePath: DefaultBasePath,
 		namespace: DefaultNamespace,
 		context: DefaultContext,
 		publicDir: DefaultFileServerDir,
 		key: GenerateKey(16),
+		cache: make(map[string]*cache),
+		template: make(map[string]*template.Template),
 		publicContext: DefaultFileServerContext}
+
+	//Initialize cache
+	for _,p := range Platforms {
+		f.cache[p] = &cache{}
+	}
 
 	if len(args) > 0 {
 		for k,v:= range args[0] {
@@ -351,18 +372,31 @@ func NewFrontend(args ...Parameters) (*Frontend){
 	return &f
 }
 
+//BaseUrl returns the eternal base url of the service. 
+// This may be a full qualified URL or just the path component.
+func (b* Frontend) BaseUrl() string {
+	if (b.extUrl != nil) {
+		return b.extUrl.String()
+	} else {
+		return b.context
+	}
+}
+
 // Preload JS libraries if existing.
 // TODO: An order needs to specified somehow.
 // TODO: Simplify this crap
-func (b *Frontend) loadLibraries() int{
-	libbuf := new(bytes.Buffer)
+func (b *Frontend) loadLibraries(plat string) int{
 	log.Printf("Loading default libraries ...")
-	for _,u:= range defaultTemplates.Libraries {
+
+
+	libbuf := new(bytes.Buffer)
+	for _,u:= range b.templateSource[plat].Libraries {
 		loadExternalLibrary(u,libbuf)
 	}
 
-	log.Printf("Searching for include JS libraries ...")
-	fd,err := os.Open(b.templateBasePath + "/" + RelativeLibPath)
+	path :=b.templateBasePath + "/" + RelativeTemplatePath + "/" + plat + "/" + RelativeTemplateLibPath
+	log.Printf("Searching for include JS libraries in `%s`",path)
+	fd,err := os.Open(path)
 	if err == nil {
 		fia,err := fd.Readdir(-1);
 		if err == nil {
@@ -375,7 +409,7 @@ func (b *Frontend) loadLibraries() int{
 
 				switch suffix {
 					case "js":
-						fd,err := os.Open(b.templateBasePath+"/"+RelativeLibPath+"/"+fi.Name());
+						fd,err := os.Open(path +"/"+fi.Name());
 						if err != nil {
 							log.Printf("Could not open library file %s: %s",fi.Name(),err.Error());
 							break
@@ -383,7 +417,7 @@ func (b *Frontend) loadLibraries() int{
 						log.Printf("Reading JS library: %s",fi.Name());
 						libbuf.ReadFrom(fd);
 					case "url":
-						fd,err := os.Open(b.templateBasePath+"/"+RelativeLibPath+"/"+fi.Name());
+						fd,err := os.Open(path+"/"+fi.Name());
 						if err != nil {
 							log.Printf("Could not open library file %s: %s",fi.Name(),err.Error());
 							break
@@ -410,7 +444,7 @@ func (b *Frontend) loadLibraries() int{
 	}
 
 	if bl:=libbuf.Len(); bl > 0 {
-		b.cache.libraries = libbuf.String()
+		b.cache[plat].libraries = libbuf.String()
 		return bl
 	}
 	return 0
@@ -434,45 +468,53 @@ func loadExternalLibrary(url string, out io.Writer) {
 // The template directory itself can be specified  by the NewFrontend constructor function. This
 // only succeeds if all tempaltes can be loaded successfully. Otherwise the internal templates will
 // be used.
-func (b *Frontend) loadTemplatesFromDir() {
+func (b *Frontend) loadTemplatesFromDir(plat string) {
 	ntemplate,e := template.ParseFiles(
-		path.Join(b.templateBasePath,RelativePath,Template),
-		path.Join(b.templateBasePath,RelativePath,InterfaceTemplate),
-		path.Join(b.templateBasePath,RelativePath,MethodTemplate))
+		path.Join(b.templateBasePath,RelativeTemplatePath,plat,HTTPTemplate),
+		path.Join(b.templateBasePath,RelativeTemplatePath,plat,BindingTemplate),
+		path.Join(b.templateBasePath,RelativeTemplatePath,plat,InterfaceTemplate),
+		path.Join(b.templateBasePath,RelativeTemplatePath,plat,MethodTemplate))
 	if e!=nil {
 		log.Printf("Could not load template \"%s\". Using default templates.",e.Error())
 		b.loadDefaultTemplates()
 	} else {
 
 		for _,t:= range ntemplate.Templates() {
-			log.Printf("Template found: %s.",t.Name())
+			log.Printf("Template for '%s' platform found: %s.",plat,t.Name())
 		}
-		b.template = ntemplate
+		b.template[plat] = ntemplate
 	}
 }
 
 // Load internal default templates for "binding.js", "interface.js" and "method.js".
 func (b *Frontend) loadDefaultTemplates() {
-	t := template.New(Template)
-	_,e1 := t.Parse(defaultTemplates.Binding)
+	for p,t := range b.templateSource {
+		ft := template.New(HTTPTemplate)
+		_,e1 := ft.Parse(t.HTTP)
 
-	t = t.New(InterfaceTemplate)
-	_,e2 := t.Parse(defaultTemplates.Interface)
+		ft = ft.New(BindingTemplate)
+		_,e2 := ft.Parse(t.Binding)
 
-	t = t.New(MethodTemplate)
-	_,e3 := t.Parse(defaultTemplates.Method)
+		ft = ft.New(InterfaceTemplate)
+		_,e3 := ft.Parse(t.Interface)
 
-	if e1 != nil || e2 != nil || e3 != nil {
-		panic(fmt.Errorf("Could not load internal templates: %s %s %s",e1.Error(),e2.Error(),e3.Error()))
+		ft = ft.New(MethodTemplate)
+		_,e4 := ft.Parse(t.Method)
+
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
+			panic(fmt.Errorf("Could not load internal templates for platform '%s': %s %s %s %s",p,e1.Error(),e2.Error(),e3.Error(),e4.Error()))
+		}
+		b.template[p] = ft
 	}
-	b.template = t
 }
 
 // ClearCache clears the internally used cache. This also includes the engine code which needs 
 // to be reassembled afterwards. This happens on the next call that requests the engine.
-func (b Frontend) ClearCache() {
-	log.Printf("Clearing Cache at revision %d",b.cache.revision)
-	b.cache = cache{}
+func (b *Frontend) ClearCache() {
+	for p,_ := range b.cache {
+		log.Printf("Clearing platform cache '%s' cache at revision %d",p,b.cache[p].revision)
+		b.cache[p] = &cache{}
+	}
 }
 
 // Flags gets and sets configuration flags. If method marameter are omitted, flags are just read from
@@ -489,6 +531,36 @@ func (b *Frontend) Flags(flags ...int) int{
 	return b.flags
 }
 
+// engineCacheKey generates a) an appropriate cache key for the given platform which may inlcude
+// the request URL of the current request context. And b) the url the given platform will use
+// to access the server side. This url is used for the templating engine which is cached.
+func (f *Frontend) engineCacheKey(url *url.URL,platform string) (key string, rurl string) {
+	if f.extUrl != nil {
+		url = f.extUrl
+	}
+
+	rurl = url.String()
+	key = platform
+
+	switch platform {
+		case "nodejs":
+			key = fmt.Sprintf("%s.%s%s",url.Scheme,url.Host,f.context)
+		case "jquery":
+			rurl = f.context
+	}
+	return
+}
+
+//platform identify the requested platform of request.
+func platform(r *http.Request) string {
+	for _,plat := range Platforms {
+		if strings.HasSuffix(r.URL.Path,plat) {
+			return plat
+		}
+	}
+	return DefaultPlatform
+}
+
 // Build compiles the javascript based proxy-object (JS engine) including external libraries.
 // This consists of 4 areas:
 //
@@ -501,31 +573,41 @@ func (b *Frontend) Flags(flags ...int) int{
 // 4:	Methods per interface.
 //
 // Templates for 2),3),4) are either taken from application memory or read from the filesystem.
-func (b *Frontend) Build(out io.Writer) {
-	if  len(b.cache.engine) <= 0 || b.cache.revision < b.revision {
+func (b *Frontend) Build(r *http.Request,out io.Writer) {
+	p:=platform(r)
+	url := externalUrlFromRequest(r)
+	ckey,baseUrl := b.engineCacheKey(url,p)
+
+	if _,exists := b.cache[ckey];!exists {
+		b.cache[ckey] = &cache{}
+	}
+
+	//TODO: improve, its not nice
+	//Platform nodejs can only be cached if the external URL is explicitly defined.
+	if  len(b.cache[ckey].engine) <= 0 || b.cache[ckey].revision < b.revision  {
 		buf := new(bytes.Buffer)
-		b.build(buf)
-		b.cache.engine = buf.String()
-		b.cache.revision = b.revision
+		b.build(baseUrl,p,buf)
+		b.cache[ckey].engine = buf.String()
+		b.cache[ckey].revision = b.revision
 	}
 	//io.WriteString(out,b.cache.engine)
-	out.Write([]byte(b.cache.engine))
+	out.Write([]byte(b.cache[ckey].engine))
 }
 
 // Internally used function the actually generates the code for the JS engine. This includes
 // also external and internal libariries if the corresponding configuration flag F_INCLUDE_LIBRARIES is set
 // TODO: Split this in individual methods if feasible.
-func (b *Frontend) build(out io.Writer) {
+func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 	log.Printf("Generating proxy object at revision %d for context: %s.",b.revision,b.context)
 	// (1) Libraries
-	if (b.flags & F_LOAD_LIBRARIES) > 0 && (len(b.cache.libraries) > 0 || b.loadLibraries() > 0) {
-		io.WriteString(out,b.cache.libraries)
+	if (b.flags & F_LOAD_LIBRARIES) > 0 && (len(b.cache[p].libraries) > 0 || b.loadLibraries(p) > 0) {
+		io.WriteString(out,b.cache[p].libraries)
 	}
 
 	// (2)  Engine (binding engine)
 	//TODO: Find a way to minimize templates while they are loaded.
 	if (b.flags & F_LOAD_TEMPLATES) > 0 {
-		b.loadTemplatesFromDir()
+		b.loadTemplatesFromDir(p)
 	} else {
 		b.loadDefaultTemplates()
 	}
@@ -536,14 +618,12 @@ func (b *Frontend) build(out io.Writer) {
 	}
 	proxyParams := map[string]string{
 		tokenNamespace: b.namespace,
-		tokenBaseContext: b.context,
-		tokenValidateArguments: vav}
+		tokenValidateArguments: vav,
+		tokenBaseContext: baseUrl }
 
-	if b.extUrl != nil {
-		proxyParams[tokenBaseContext] = b.extUrl.String()
-	}
-
-	b.template.Lookup(Template).Execute(out,proxyParams)
+	//TODO check which params are actually needed here.
+	b.template[p].Lookup(HTTPTemplate).Execute(out,proxyParams)
+	b.template[p].Lookup(BindingTemplate).Execute(out,proxyParams)
 
 	// (3) Interface objects
 	interfaces:=b.InterfaceNames()
@@ -551,7 +631,7 @@ func (b *Frontend) build(out io.Writer) {
 		interfaceParams := Append(map[string]string{
 			tokenInterfaceName: in }, proxyParams)
 
-		b.template.Lookup(InterfaceTemplate).Execute(out,interfaceParams)
+		b.template[p].Lookup(InterfaceTemplate).Execute(out,interfaceParams)
 
 		// (4) Method objects
 		methods := b.BindingContainer.BindingNames(in)
@@ -561,7 +641,7 @@ func (b *Frontend) build(out io.Writer) {
 			methodParams := Append(map[string]string{
 				tokenMethodName: m,
 				tokenArgumentsString: vs},interfaceParams)
-			b.template.Lookup(MethodTemplate).Execute(out,methodParams)
+			b.template[p].Lookup(MethodTemplate).Execute(out,methodParams)
 
 		}
 	}
@@ -720,13 +800,52 @@ func ErrorToJSONString(e error) string {
 	return buf.String()
 }
 
+
+//externalUrlFromRequest builds a full qualified URL from the given request object.
+func externalUrlFromRequest(r *http.Request) (ret *url.URL) {
+	ret = &url.URL{}
+	if r.TLS == nil {
+		ret.Scheme = "http"
+	} else {
+		ret.Scheme = "https"
+	}
+	ret.Host = r.Host
+	ret.Path = r.URL.Path
+	ret.RawQuery = r.URL.RawQuery
+	ret.Fragment = r.URL.Fragment
+	return
+}
+
+// converStringParams tries to convert the given string parameter to the real ones needed
+// by the call invocation. The validation string is used to identify the target type.
+func (b *Binding) convertStringParams(args []string) (iargs []interface{},err error) {
+	vs := b.ValidationString()
+	iargs = make([]interface{},len(args))
+
+	for i,a := range args{ // Convert string array to interface{} array
+		var v interface{} = nil
+		switch vs[i] { // Only simple types supported. TODO: Offer Json Parsing.
+			case 'i':
+				v,err = strconv.Atoi(a)
+			case 'f':
+				v,err = strconv.ParseFloat(a,64)
+			default:
+				v = a
+		}
+		iargs[i] = v
+	}
+	return
+}
+
 // ServeHTTP processes http request. Depending on the mehtod either a call is expected (POST) or 
 // the JS engine is returned (GET)
 func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
+	mt := DefaultPlatform
 	defer func() {
 		if re:=recover();re!=nil {
-			e,_ :=re.(error)
+			e := errors.New(fmt.Sprintf("%s",re))
 			http.Error(w,ErrorToJSONString(e),http.StatusInternalServerError)
+			debug.PrintStack()
 		}
 		r.Body.Close()
 	}()
@@ -737,13 +856,12 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 	defer func() {
 		session.Flush(w,f.key) //Update session on client side if necessary.
+		w.Header().Set("Content-Type",mt)
 		obuf.WriteTo(w)
 	}()
 
-	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 		case "POST":
-			w.Header().Set("Content-Type", "application/json")
 			dec:=json.NewDecoder(r.Body)
 			var m call
 			if e := dec.Decode(&m); e != nil{
@@ -753,13 +871,15 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 			if b,found := f.Binding(m.Interface,m.Method); found {
 				if len(b.ValidationString()) != len(m.Data) {
 					http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d",len(m.Data),len(b.ValidationString()))),http.StatusBadRequest)
+					return
 				} else {
-					b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
+					mt = b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
 				}
 			} else {
 				http.Error(w,ErrorToJSONString(errors.New(fmt.Sprint("Binding %s.%s not found.",m.Interface,m.Method))),http.StatusNotFound)
 				return
 			}
+			w.Header().Set("Content-Type",mt)
 		case "GET":
 			path := r.URL.Path
 			if strings.Contains(path,f.context) {
@@ -772,19 +892,35 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 				if len(elems) >= 2 {
 					if b,f := f.Binding(elems[0],elems[1]); f {
-						if len(b.ValidationString()) != 0 {
-							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d",0,len(b.ValidationString()))),http.StatusBadRequest)
-						} else {
-							b.processCall(obuf,NewI(httpContext,session),"")
+						args := elems[2:]
+						if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
+							for _,v := range vals {
+								args = append(args,v...)
+							}
 						}
+
+						if len(b.ValidationString()) != len(args) {
+							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d %s",len(args),len(b.ValidationString()),args)),http.StatusBadRequest)
+							return
+						}
+						iargs,err := b.convertStringParams(args)
+
+						if err != nil {
+							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter type for GET call. '%s': %s",args,err)),http.StatusBadRequest)
+							return
+						}
+						mt = b.processCall(obuf,NewI(httpContext,session),"",iargs...)
+						w.Header().Set("Content-Type",mt)
+						return
 					} else {
 						http.Error(w,ErrorToJSONString(errors.New(fmt.Sprintf("Binding %s.%s not found.",elems[0],elems[1]))),http.StatusNotFound)
+						return
 					}
-					return
 				}
+
 			}
-			w.Header().Set("Content-Type", "application/javascript")
-			f.Build(obuf)
+			w.Header().Set("Content-Type","application/javascript")
+			f.Build(r,obuf)
 		default:
 			http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 	}
@@ -792,18 +928,29 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 // Internally used method to process a call. Input parameters, interface name and method name a read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
-func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...interface{}) {
+func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...interface{}) (mime string) {
 	var b []byte
+	var err error
 	defer func() {Log("CALL","-",f.interfaceName + "." + f.elemName,strconv.Itoa(len(b))) }()
 	ret := f.InvokeI(injs,args...)
-	o := outgoingMessage{
-		CRID: id,
-		Data: ret}
 
-	b, err := json.Marshal(o)
+	if bin,ok := ret.(Binary); ok {
+		defer bin.Close()
+		b, err = ioutil.ReadAll(bin)
+		mime = bin.MimeType()
+	} else {
+		o := outgoingMessage{
+			CRID: id,
+			Data: ret}
+
+		b, err = json.Marshal(o)
+		mime = DefaultMimeType
+	}
+
 	if err != nil {
 		panic(err)
 	}
+
 	out.Write(b)
 	return
 }

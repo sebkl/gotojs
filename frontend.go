@@ -34,6 +34,7 @@ import (
 	"compress/flate"
 	"io/ioutil"
 	"runtime/debug"
+	"github.com/dchest/jsmin"
 )
 
 // Configuration flags.
@@ -597,6 +598,7 @@ func (b *Frontend) Build(r *http.Request,out io.Writer) {
 // Internally used function the actually generates the code for the JS engine. This includes
 // also external and internal libariries if the corresponding configuration flag F_INCLUDE_LIBRARIES is set
 // TODO: Split this in individual methods if feasible.
+// TODO: Improve minify step.
 func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 	log.Printf("Generating proxy object at revision %d for context: %s.",b.revision,b.context)
 	// (1) Libraries
@@ -622,8 +624,9 @@ func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 		tokenBaseContext: baseUrl }
 
 	//TODO check which params are actually needed here.
-	b.template[p].Lookup(HTTPTemplate).Execute(out,proxyParams)
-	b.template[p].Lookup(BindingTemplate).Execute(out,proxyParams)
+	buf := new(bytes.Buffer)
+	b.template[p].Lookup(HTTPTemplate).Execute(buf,proxyParams)
+	b.template[p].Lookup(BindingTemplate).Execute(buf,proxyParams)
 
 	// (3) Interface objects
 	interfaces:=b.InterfaceNames()
@@ -631,7 +634,7 @@ func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 		interfaceParams := Append(map[string]string{
 			tokenInterfaceName: in }, proxyParams)
 
-		b.template[p].Lookup(InterfaceTemplate).Execute(out,interfaceParams)
+		b.template[p].Lookup(InterfaceTemplate).Execute(buf,interfaceParams)
 
 		// (4) Method objects
 		methods := b.BindingContainer.BindingNames(in)
@@ -641,9 +644,17 @@ func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 			methodParams := Append(map[string]string{
 				tokenMethodName: m,
 				tokenArgumentsString: vs},interfaceParams)
-			b.template[p].Lookup(MethodTemplate).Execute(out,methodParams)
+			b.template[p].Lookup(MethodTemplate).Execute(buf,methodParams)
 
 		}
+	}
+
+	//Minification
+	if ret, err := jsmin.Minify(buf.Bytes()); err != nil {
+		buf.WriteTo(out)
+	} else {
+		fbuf := bytes.NewBuffer(ret)
+		fbuf.WriteTo(out)
 	}
 	return
 }

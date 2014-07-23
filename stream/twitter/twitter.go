@@ -100,6 +100,9 @@ func NewTwitterSource(account,stream,baseUrl string) (ret *TwitterSource,err err
 		decoder.Decode(streamConfig)
 		err = nil
 		log.Printf("Twitterstream configuration: %s",streamConfig.JSON())
+	} else {
+		log.Printf("Could not read stream configuration: %s",err)
+		err = nil
 	}
 
 	client := twitterstream.NewClient(config.APIKey,config.APISecret,config.AccessToken,config.AccessSecret)

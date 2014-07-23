@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"io/ioutil"
 	. "github.com/sebkl/gotojs"
+	compilerapi "github.com/ant0ine/go-closure-compilerapi"
 )
 
 func printUsage() {
 	cmd:= os.Args[0]
 	fmt.Printf(`
 Usage:
-	%s <command> [argument]
+	%s <command> <mandatory_arguments> [optional_arguments]
 
 The Commands are:
-	example <path_to_app_root>	Create a sample app.
-	create 	<path_to_app_root>	Create a sample directory structure.
-	export 	<path_to_template_dir>	Exports internally used templates.
+	example <path_to_app_root>		Create a sample app.
+	create 	<path_to_app_root>		Create a sample directory structure.
+	export 	<path_to_template_dir>		Exports internally used templates.
+	compile <path_to_js_file> [output]	Compile javascript file.
 
 Examples:
 	%s create /var/www/helloworld
@@ -165,6 +167,27 @@ func main() {
 			exportTemplates(arg + "/" + RelativeTemplatePath)
 		case "export":
 			exportTemplates(arg)
+		case "compile":
+			client := &compilerapi.Client{Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
+			bs, err := ioutil.ReadFile(arg)
+			check(err)
+			o := client.Compile(bs)
+
+			if al > 3 {
+				out := os.Args[3]
+				ioutil.WriteFile(out,[]byte(o.CompiledCode),fflag)
+			} else {
+				fmt.Println(o.CompiledCode)
+			}
+
+			//Log Errors and Warnings last.
+			for _,v := range o.Warnings {
+				fmt.Println(v.AsLogline());
+			}
+
+			for _,v := range o.Errors {
+				fmt.Println(v.AsLogline());
+			}
 		default:
 			fmt.Printf("Unknown command: %s\n\n",cmd)
 			printUsage()

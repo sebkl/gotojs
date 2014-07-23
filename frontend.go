@@ -35,6 +35,7 @@ import (
 	"io/ioutil"
 	"runtime/debug"
 	"github.com/dchest/jsmin"
+	compilerapi "github.com/ant0ine/go-closure-compilerapi"
 )
 
 // Configuration flags.
@@ -595,6 +596,32 @@ func (b *Frontend) Build(r *http.Request,out io.Writer) {
 	out.Write([]byte(b.cache[ckey].engine))
 }
 
+
+//Minify tries to cpmpile the given javascript source code using the google closure compiler.
+// If the closure compiler failes it falls back to a pure go implementation.
+func Minify(source []byte) []byte {
+	//Use Closure compiler API first:
+	client := &compilerapi.Client{Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
+	o := client.Compile(source)
+	if len(o.Errors) <= 0 && o.ServerErrors == nil  {
+		return []byte(o.CompiledCode)
+	}
+
+	// Log errors from Closure Compiler
+	for _,e := range o.Errors {
+		log.Println(e.AsLogline())
+	}
+
+	log.Println("Closure Compiler failed. Using pure go implemenation.")
+	if ret, err := jsmin.Minify(source); err == nil {
+		return ret
+	} else {
+		log.Printf("Minify failed: %s.",err)
+	}
+
+	return source
+}
+
 // Internally used function the actually generates the code for the JS engine. This includes
 // also external and internal libariries if the corresponding configuration flag F_INCLUDE_LIBRARIES is set
 // TODO: Split this in individual methods if feasible.
@@ -650,12 +677,9 @@ func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
 	}
 
 	//Minification
-	if ret, err := jsmin.Minify(buf.Bytes()); err != nil {
-		buf.WriteTo(out)
-	} else {
-		fbuf := bytes.NewBuffer(ret)
-		fbuf.WriteTo(out)
-	}
+	fbuf := bytes.NewBuffer(Minify(buf.Bytes()))
+	fbuf.WriteTo(out)
+
 	return
 }
 

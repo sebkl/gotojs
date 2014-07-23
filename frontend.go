@@ -761,12 +761,11 @@ func NewLogWraper(origin http.Handler) *LogWraper {
 	return &LogWraper{origin}
 }
 
-// Start starts the http frontend. This method only returns in case a panic or unexpected
-// error occurs.
-// 1st optional parameter is the listen address ("localhost:8080") and 2nd optional parmaeter is
-// the engine context ("/gotojs")
-// If these are not provided, default or initialization values are used
-func (f *Frontend) Start(args ...string) error {
+// Setup creates and returns the final http handler for the frontend.
+// It is called automatically by start, but if the frontend is used as
+// an handler somewhere alse this setup method should be called instead.
+// TODO: check what can be moved to initialization phase.
+func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	al:=len(args)
 
 	if (al > 0) {
@@ -780,8 +779,6 @@ func (f *Frontend) Start(args ...string) error {
 	// Setup gotojs engine handler.
 	f.mux.Handle(f.context + "/",f)
 
-	//final http handler
-	var handler http.Handler
 	if f.flags & F_ENABLE_ACCESSLOG  > 0{
 		handler = NewLogWraper(f.mux)
 	} else {
@@ -795,11 +792,19 @@ func (f *Frontend) Start(args ...string) error {
 		WriteTimeout:	10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
+	return
+}
 
+// Start starts the http frontend. This method only returns in case a panic or unexpected
+// error occurs.
+// 1st optional parameter is the listen address ("localhost:8080") and 2nd optional parmaeter is
+// the engine context ("/gotojs")
+// If these are not provided, default or initialization values are used
+func (f *Frontend) Start(args ...string) error {
+	_  = f.Setup(args...)
 	log.Printf("Starting server at \"%s\".",f.addr)
 	return f.httpd.ListenAndServe()
 }
-
 
 //Mux returns the internally user request multiplexer. It allows to assign additional http handlers
 func (f* Frontend) Mux() *http.ServeMux {

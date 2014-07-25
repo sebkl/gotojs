@@ -34,7 +34,7 @@ curl "http://localhost:8080/gotojs/Sample/Hello?name=Dude"
 {"CRID":"","Data":"Hello Dude!"}
 ```
 
-# Google App Engine Example:
+#### Google App Engine Example:
 ```
 package frontend
 
@@ -88,7 +88,7 @@ func init() {
 ```
 Which actually implements a simple HTTP Trace service for demonstration purposes.
 
-# Generate application base:
+#### Generate application base:
 For a quick example application follow these steps
 ```
 go get github.com/sebkl/gotojs/util

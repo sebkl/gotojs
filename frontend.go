@@ -35,7 +35,7 @@ import (
 	"io/ioutil"
 	"runtime/debug"
 	"github.com/dchest/jsmin"
-	compilerapi "github.com/ant0ine/go-closure-compilerapi"
+	compilerapi "github.com/sebkl/go-closure-compilerapi"
 )
 
 // Configuration flags.
@@ -149,6 +149,13 @@ type Binary interface {
 	MimeType() string
 }
 
+type HTTPContextConstructor func(*http.Request,http.ResponseWriter) *HTTPContext
+
+// NewHTTPContext creates a new HTTP context based on incoming 
+func NewHTTPContext(request *http.Request, response http.ResponseWriter) *HTTPContext {
+	return &HTTPContext{Request: request,Response: response, Client: http.DefaultClient}
+}
+
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
 // HTTP facade of "gotojs".
 type Frontend struct {
@@ -168,6 +175,7 @@ type Frontend struct {
 	publicContext string
 	fileServer http.Handler
 	key []byte
+	HTTPContextConstructor HTTPContextConstructor
 }
 
 //Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
@@ -279,6 +287,7 @@ func (s *Session) Cookie(name,path string, key []byte) *http.Cookie {
 // is of type *HTTPContext. It contains references to all relevant http related objects like request and 
 // response object.
 type HTTPContext struct{
+	Client *http.Client
 	Request *http.Request
 	Response http.ResponseWriter
 }
@@ -326,6 +335,7 @@ func NewFrontend(args ...Parameters) (*Frontend){
 		key: GenerateKey(16),
 		cache: make(map[string]*cache),
 		template: make(map[string]*template.Template),
+		HTTPContextConstructor: NewHTTPContext,
 		publicContext: DefaultFileServerContext}
 
 	//Initialize cache
@@ -387,13 +397,13 @@ func (b* Frontend) BaseUrl() string {
 // Preload JS libraries if existing.
 // TODO: An order needs to specified somehow.
 // TODO: Simplify this crap
-func (b *Frontend) loadLibraries(plat string) int{
+func (b *Frontend) loadLibraries(c *HTTPContext,plat string) int{
 	log.Printf("Loading default libraries ...")
 
 
 	libbuf := new(bytes.Buffer)
 	for _,u:= range b.templateSource[plat].Libraries {
-		loadExternalLibrary(u,libbuf)
+		loadExternalLibrary(c,u,libbuf)
 	}
 
 	path :=b.templateBasePath + "/" + RelativeTemplatePath + "/" + plat + "/" + RelativeTemplateLibPath
@@ -431,7 +441,7 @@ func (b *Frontend) loadLibraries(plat string) int{
 						if e != nil {
 							log.Printf("Could not parse url \"%s\".",url.String())
 						} else {
-							loadExternalLibrary(url.String(),libbuf)
+							loadExternalLibrary(c,url.String(),libbuf)
 						}
 					default:
 						log.Printf("Ignoring file: %s",fi.Name())
@@ -453,9 +463,9 @@ func (b *Frontend) loadLibraries(plat string) int{
 }
 
 // Load the contents of the given "url" and write it to the "out" writer.
-func loadExternalLibrary(url string, out io.Writer) {
+func loadExternalLibrary(c *HTTPContext,url string, out io.Writer) {
 	log.Printf("Loading external JS library: %s",url)
-	resp,e := http.Get(url)
+	resp,e := c.Client.Get(url)
 	if e != nil {
 		log.Printf("Could not load library %s: %s",url,e.Error())
 		return
@@ -548,7 +558,11 @@ func (f *Frontend) engineCacheKey(url *url.URL,platform string) (key string, rur
 		case "nodejs":
 			key = fmt.Sprintf("%s.%s%s",url.Scheme,url.Host,f.context)
 		case "jquery":
-			rurl = f.context
+			if f.extUrl != nil {
+				rurl = f.extUrl.String()
+			} else {
+				rurl = f.context
+			}
 	}
 	return
 }
@@ -563,47 +577,13 @@ func platform(r *http.Request) string {
 	return DefaultPlatform
 }
 
-// Build compiles the javascript based proxy-object (JS engine) including external libraries.
-// This consists of 4 areas:
-//
-// 1:	Libraries (jQuery etc) which are read from either the file system or the interned during initialization.
-//
-// 2:	Engine (binding engine).
-//
-// 3:	Interface objects.
-//
-// 4:	Methods per interface.
-//
-// Templates for 2),3),4) are either taken from application memory or read from the filesystem.
-func (b *Frontend) Build(r *http.Request,out io.Writer) {
-	p:=platform(r)
-	url := externalUrlFromRequest(r)
-	ckey,baseUrl := b.engineCacheKey(url,p)
-
-	if _,exists := b.cache[ckey];!exists {
-		b.cache[ckey] = &cache{}
-	}
-
-	//TODO: improve, its not nice
-	//Platform nodejs can only be cached if the external URL is explicitly defined.
-	if  len(b.cache[ckey].engine) <= 0 || b.cache[ckey].revision < b.revision  {
-		buf := new(bytes.Buffer)
-		b.build(baseUrl,p,buf)
-		b.cache[ckey].engine = buf.String()
-		b.cache[ckey].revision = b.revision
-	}
-	//io.WriteString(out,b.cache.engine)
-	out.Write([]byte(b.cache[ckey].engine))
-}
-
-
 //Minify tries to cpmpile the given javascript source code using the google closure compiler.
 // If the closure compiler failes it falls back to a pure go implementation.
-func Minify(source []byte) []byte {
+func Minify(c *HTTPContext,source []byte) []byte {
 	//Use Closure compiler API first:
-	client := &compilerapi.Client{Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
+	client := &compilerapi.Client{HTTPClient: c.Client,Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
 	o := client.Compile(source)
-	if len(o.Errors) <= 0 && o.ServerErrors == nil  {
+	if len(o.Errors) <= 0 && o.ServerErrors == nil && len(o.CompiledCode) > 10  {
 		return []byte(o.CompiledCode)
 	}
 
@@ -621,66 +601,93 @@ func Minify(source []byte) []byte {
 
 	return source
 }
-
-// Internally used function the actually generates the code for the JS engine. This includes
-// also external and internal libariries if the corresponding configuration flag F_INCLUDE_LIBRARIES is set
+// build is an internally used function that compiles the javascript based 
+//proxy-object (JS engine) including external libraries. This consists of 4 areas:
+//
+// 1:	Libraries (jQuery etc) which are read from either the file system or the interned during initialization.
+//
+// 2:	Engine (binding engine).
+//
+// 3:	Interface objects.
+//
+// 4:	Methods per interface.
+//
+// Templates for 2),3),4) are either taken from application memory or read from the filesystem.
+// This includes also external and internal libariries if the corresponding configuration 
+// flag F_INCLUDE_LIBRARIES is set
 // TODO: Split this in individual methods if feasible.
 // TODO: Improve minify step.
-func (b *Frontend) build(baseUrl string,p string,out io.Writer) {
-	log.Printf("Generating proxy object at revision %d for context: %s.",b.revision,b.context)
-	// (1) Libraries
-	if (b.flags & F_LOAD_LIBRARIES) > 0 && (len(b.cache[p].libraries) > 0 || b.loadLibraries(p) > 0) {
-		io.WriteString(out,b.cache[p].libraries)
+func (b *Frontend) build(c *HTTPContext,out io.Writer) {
+	p:=platform(c.Request)
+	url := externalUrlFromRequest(c.Request)
+	ckey,baseUrl := b.engineCacheKey(url,p)
+
+	if _,exists := b.cache[ckey];!exists {
+		b.cache[ckey] = &cache{}
 	}
 
-	// (2)  Engine (binding engine)
-	//TODO: Find a way to minimize templates while they are loaded.
-	if (b.flags & F_LOAD_TEMPLATES) > 0 {
-		b.loadTemplatesFromDir(p)
-	} else {
-		b.loadDefaultTemplates()
-	}
+	//TODO: improve, its not nice
+	//Platform nodejs can only be cached if the external URL is explicitly defined.
+	if  len(b.cache[ckey].engine) <= 0 || b.cache[ckey].revision < b.revision  {
+		buf := new(bytes.Buffer)
 
-	vav := ""
-	if (b.flags & F_VALIDATE_ARGS) > 0 {
-		vav="true"
-	}
-	proxyParams := map[string]string{
-		tokenNamespace: b.namespace,
-		tokenValidateArguments: vav,
-		tokenBaseContext: baseUrl }
-
-	//TODO check which params are actually needed here.
-	buf := new(bytes.Buffer)
-	b.template[p].Lookup(HTTPTemplate).Execute(buf,proxyParams)
-	b.template[p].Lookup(BindingTemplate).Execute(buf,proxyParams)
-
-	// (3) Interface objects
-	interfaces:=b.InterfaceNames()
-	for _,in := range interfaces{
-		interfaceParams := Append(map[string]string{
-			tokenInterfaceName: in }, proxyParams)
-
-		b.template[p].Lookup(InterfaceTemplate).Execute(buf,interfaceParams)
-
-		// (4) Method objects
-		methods := b.BindingContainer.BindingNames(in)
-		for _,m := range methods {
-			bi,_ := b.Binding(in,m)
-			vs:= bi.ValidationString()
-			methodParams := Append(map[string]string{
-				tokenMethodName: m,
-				tokenArgumentsString: vs},interfaceParams)
-			b.template[p].Lookup(MethodTemplate).Execute(buf,methodParams)
-
+		log.Printf("Generating proxy object at revision %d for context: %s at baseUrl: %s",b.revision,b.context,baseUrl)
+		// (1) Libraries
+		if (b.flags & F_LOAD_LIBRARIES) > 0 && (len(b.cache[p].libraries) > 0 || b.loadLibraries(c,p) > 0) {
+			io.WriteString(buf,b.cache[p].libraries)
 		}
+
+		// (2)  Engine (binding engine)
+		//TODO: Find a way to minimize templates while they are loaded.
+		if (b.flags & F_LOAD_TEMPLATES) > 0 {
+			b.loadTemplatesFromDir(p)
+		} else {
+			b.loadDefaultTemplates()
+		}
+
+		vav := ""
+		if (b.flags & F_VALIDATE_ARGS) > 0 {
+			vav="true"
+		}
+		proxyParams := map[string]string{
+			tokenNamespace: b.namespace,
+			tokenValidateArguments: vav,
+			tokenBaseContext: baseUrl }
+
+		//TODO: check which params are actually needed here.
+		minbuf := new(bytes.Buffer) //Buffer for the js code that will by minified.
+		b.template[p].Lookup(HTTPTemplate).Execute(minbuf,proxyParams)
+		b.template[p].Lookup(BindingTemplate).Execute(minbuf,proxyParams)
+
+		// (3) Interface objects
+		interfaces:=b.InterfaceNames()
+		for _,in := range interfaces{
+			interfaceParams := Append(map[string]string{
+				tokenInterfaceName: in }, proxyParams)
+
+			b.template[p].Lookup(InterfaceTemplate).Execute(minbuf,interfaceParams)
+
+			// (4) Method objects
+			methods := b.BindingContainer.BindingNames(in)
+			for _,m := range methods {
+				bi,_ := b.Binding(in,m)
+				vs:= bi.ValidationString()
+				methodParams := Append(map[string]string{
+					tokenMethodName: m,
+					tokenArgumentsString: vs},interfaceParams)
+				b.template[p].Lookup(MethodTemplate).Execute(minbuf,methodParams)
+			}
+		}
+
+		//Minification
+		buf.Write(Minify(c,minbuf.Bytes()))
+
+		//Set the cache 
+		b.cache[ckey].engine = buf.String()
+		b.cache[ckey].revision = b.revision
 	}
-
-	//Minification
-	fbuf := bytes.NewBuffer(Minify(buf.Bytes()))
-	fbuf.WriteTo(out)
-
-	return
+	//io.WriteString(out,b.cache.engine)
+	out.Write([]byte(b.cache[ckey].engine))
 }
 
 // ValidationString generate a string that represents the signature of a method or function. It
@@ -877,7 +884,7 @@ func (b *Binding) convertStringParams(args []string) (iargs []interface{},err er
 	return
 }
 
-// ServeHTTP processes http request. Depending on the mehtod either a call is expected (POST) or 
+// ServeHTTP processes http request. Depending on the method either a call is expected (POST) or 
 // the JS engine is returned (GET)
 func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	mt := DefaultPlatform
@@ -890,7 +897,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 		r.Body.Close()
 	}()
 
-	httpContext := &HTTPContext{Request: r,Response: w}
+	httpContext := f.HTTPContextConstructor(r,w)
 	session := httpContext.Session(f.key)
 	obuf := new(bytes.Buffer)
 
@@ -960,7 +967,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 			}
 			w.Header().Set("Content-Type","application/javascript")
-			f.Build(r,obuf)
+			f.build(httpContext,obuf)
 		default:
 			http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 	}

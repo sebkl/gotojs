@@ -323,8 +323,22 @@ func TestPassInjection(t *testing.T) {
 
 	b := backend.Interface("TT").Bindings()
 
+	mb,_ := backend.Binding("TT","Get")
+
+
+	if mb.ValidationString() != "i" {
+		t.Errorf("Validation string is not correct: '%s'/'%s'",mb.ValidationString(),"i")
+	}
 	b.AddInjection(&mytt2) // Delcare type and assign singleton
+
+	if mb.ValidationString() != "" {
+		t.Errorf("Validation string is not correct: '%s'/'%s'",mb.ValidationString(),"")
+	}
 	b.AddInjection(&mytt1) // Declare type and assign singleton
+	if mb.ValidationString() != "" {
+		t.Errorf("Validation string is not correct: '%s'/'%s'",mb.ValidationString(),"")
+	}
+
 	b.If(AutoInjectF(func(tt1 *TestType1, inj Injections) bool {
 		if tt1.val1 == 1  {
 			tt2 := TestType2{3}

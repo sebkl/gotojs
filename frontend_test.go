@@ -54,7 +54,11 @@ func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error)
 	cmd.Stderr = &buf
 	err = cmd.Start()
 	stdin.Write([]byte(nodeRequire)) // Load dependency to simulate domtree.
-	frontend.build("http://localhost:8786/gotojs","jquery",stdin)
+	//frontend.build(&HTTPContext{},"http://localhost:8786/gotojs","jquery",stdin)
+	req,_ := http.NewRequest("GET","http://localhost:8786/gotojs/engine.js",nil)
+	t.Logf(req.URL.String())
+	t.Logf(frontend.extUrl.String())
+	frontend.build(&HTTPContext{Request: req},stdin)
 	for _,s := range postCmd {
 		n,err := stdin.Write([]byte(s));
 		if err!= nil || n!=len(s) {

@@ -236,6 +236,7 @@ func (f* Fetcher) BacklogRunner() {
 func (f *Fetcher) Start() (err error) {
 	log.Printf("Starting stream.")
 	if err = f.source.Start(); err != nil {
+		log.Printf("Could not start source stream: %s",err)
 		return
 	}
 

@@ -37,7 +37,7 @@ type Binding struct {
 	elemName string
 	interfaceName string
 	elemNum int
-	injections map[int]InjectionType
+	injections map[int]reflect.Type
 	singletons Injections
 	i interface{}
 	filters []Filter
@@ -56,11 +56,8 @@ type Interfaces []Interface
 // BindingContainer represents a container which consists of a set of interface and its bindings
 type BindingContainer map[string]Interface
 
-// InjectionType is an injection reference that is used to maintain the target type.
-type InjectionType reflect.Type
-
 // Injections is a container of injection objects sorted by their type.
-type Injections map[InjectionType]interface{}
+type Injections map[reflect.Type]interface{}
 
 // Backend consits of the binding container as well as some administrative attributes like revision and injection references.
 type Backend struct {
@@ -184,7 +181,7 @@ func (b *Backend) NewBinding(i interface{},t int,x int, in,mn string) (*Binding)
 		interfaceName: in,
 		backend: b,
 		singletons: make(Injections),
-		injections: make(map[int]InjectionType)}
+		injections: make(map[int]reflect.Type)}
 	p.addGlobalInjections()
 	b.BindingContainer[in][mn] = &p
 	return &p

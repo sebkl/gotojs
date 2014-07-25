@@ -146,7 +146,7 @@ var {{.NS}} = {{.NS}} || {};
 					}
 					break;
 				case 'i':
-					if (!(typeof o === 'number' && o % 1 == 0)) {
+					if (!(typeof o === 'number' && Math.floor(o) == o)) {
 
 						throw mes + "an integer.";
 					}

@@ -10,13 +10,179 @@ import (
 	"math/rand"
 	"strconv"
 	"os"
+	"time"
 	"encoding/json"
+	"container/list"
 )
 
 const (
 	DefaultMaxRecordCount = 10000 //in count of messages
 	DefaultLazyStart = true
+	DefaultRetryCount = 1
+	DefaultMaxRetryDeadline = 5 * time.Second
+	DefaultSessionTimeout = 30 * time.Second
 )
+
+type Source interface {
+	Next() (Message, error)
+	Close()
+	Start() error
+}
+
+type StreamSession struct {
+	Id ID
+	Next ID
+	LastAccess Timestamp
+	Begin Timestamp
+}
+
+type FetchRequest struct {
+	id ID
+	s *StreamSession
+	q chan []Message
+	max ID
+}
+
+func NewFetchRequest(s *StreamSession) *FetchRequest{
+	return &FetchRequest{
+		id: s.Next,
+		s: s,
+		max: 0,
+		q: make(chan []Message) }
+}
+
+type Fetcher struct {
+	sessions map[ID]*StreamSession
+	source Source
+	buf *Buffer
+	backlog *list.List
+	notify chan int
+	running bool
+}
+//NewFetcher creates a new fetcher which consits of a BacklogRunner process.
+func NewFetcher(source Source) (ret *Fetcher,err error) {
+	ret = &Fetcher{running: false, source: source}
+	ret.buf = NewBuffer(DefaultBufferSize)
+	ret.backlog = list.New()
+	ret.notify = make(chan int)
+	ret.sessions = make(map[ID]*StreamSession)
+
+	go func() {
+		ret.BacklogRunner()
+	}()
+
+	return
+}
+
+//Internally used function to determine whether the source stream can be stopped since to more client stream are active.
+func (f* Fetcher) cleanup(timeout Timestamp) {
+	now := Now()
+	for k,v := range f.sessions {
+		dts := Timestamp(now - v.LastAccess)
+		if dts > timeout {
+			log.Printf("Killing session: %d, Timedout since %d seconds.",v.Id,int64(dts / 1000 ))
+			delete(f.sessions,k)
+		}
+	}
+
+	if len(f.sessions) < 1 {
+		f.Stop()
+	}
+}
+
+
+
+// Fetch puts a fetchrequest to the backlog queue. The BacklogRunner process is taking care for sending the actual data back to the clients.
+func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
+	if f.buf.HasNext(fr.id) {
+		ret = f.buf.Fetch(fr.id)
+	} else {
+		if f.running {
+			// Reduce offset to 1 in order to avoid future requests
+			fr.id = f.buf.cid +1
+			f.backlog.PushBack(fr)
+
+			ret = <-fr.q
+		} else {
+			//This locks
+			return nil
+		}
+	}
+	return
+}
+
+//BacklogRunner is the worker loop that continously servers the client (fetch requests) with outstanding messages.
+func (f* Fetcher) BacklogRunner() {
+	log.Printf("Started BacklogRunner.")
+	for c:=0;;c++ {
+		<-f.notify
+		for e := f.backlog.Front(); e != nil; e = e.Next() {
+			fr, ok := e.Value.(*FetchRequest)
+			if ok {
+				if f.buf.HasNext(fr.id) {
+					fr.q <- f.buf.Fetch(fr.id)
+					f.backlog.Remove(e)
+				}
+			} else {
+				log.Printf("Backlog contains invalid element type.")
+				f.backlog.Remove(e)
+			}
+		}
+		f.cleanup(Timestamp(DefaultSessionTimeout.Nanoseconds() / MsecTimeDivisor))
+	}
+	log.Printf("BacklogRunner stopped")
+}
+
+//Start starts the fetcher loop. It blocks and takes all incoming messages and enqueues them to the buffer.
+//Start returns only if the stream is stopped.
+func (f *Fetcher) Start() (err error) {
+	ret := make(chan error)
+	go func(ret chan error) {
+		log.Printf("Starting source stream.")
+		//Try to start source stream.
+		for retryCount := 0 ;retryCount < DefaultRetryCount;retryCount++ {
+			startTime := time.Now()
+			if err = f.source.Start(); err != nil {
+				log.Printf("Could not start source stream: %s",err)
+			}
+
+			if tdif := time.Now().Sub(startTime); tdif > DefaultMaxRetryDeadline {
+				retryCount = 0 //reset retry counter
+				log.Printf("Reinitiating twitter connection. error within %d seconds. ",tdif)
+			}
+		}
+
+		if err != nil {
+			ret <- err
+			return
+		}
+		//TODO: FORK ROUTINE HERE !!! and return success/failure immediately.
+		f.running = true
+		ret <- nil
+		for ;f.running; {
+			message,err := f.source.Next()
+			if (err == nil) {
+				f.buf.Enqueue(message)
+				f.notify<-1
+			} else {
+				log.Printf("Could not fetch next message from source. %s",err)
+			}
+		}
+		log.Printf("Stream has stopped.")
+		f.buf.Empty()
+	}(ret)
+	return <-ret //Wait for routine to be started.
+}
+
+// Stop interrupts the source stream. No more data is enqueued to the buffer anymore until Start() is called.
+// This method is used when the system identifies that no more clients have subscribed to the stream.
+func (f *Fetcher) Stop() {
+	if f.running {
+		log.Printf("Stopping stream.")
+		f.running = false
+		f.source.Close()
+	}
+}
 
 type Configuration struct {
 	SessionTimeout Timestamp

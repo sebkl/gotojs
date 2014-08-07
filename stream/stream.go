@@ -185,7 +185,7 @@ func (f *Fetcher) Stop() {
 }
 
 type Configuration struct {
-	SessionTimeout Timestamp
+	SessionTimeout Timestamp //TODO: currently not used by fetcher. needs to be moved to fetcher.
 	MaxRecordCount int
 	BufferBitSize int
 	LazyStart bool

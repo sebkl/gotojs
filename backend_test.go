@@ -446,7 +446,7 @@ func TestExposeAttributes(t* testing.T) {
 func TestExposeYourself(t *testing.T) {
 	backend.ExposeYourself("A")
 	defer backend.RemoveInterface("AS")
-	list := backend.Invoke("A","Bindings").([]string)
+	list := backend.Invoke("A","Bindings").(map[string]string)
 
 	if len(list) <= 0 {
 		t.Errorf("Selfexposure failed.")

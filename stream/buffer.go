@@ -7,11 +7,15 @@ import (
 	"container/list"
 )
 
-type Timestamp uint64
+type Timestamp uint64 //msecs
 type ID uint64
 
 const (
 	DefaultBufferSize = 12 //BitSize
+	DefaultRetryCount = 1
+	DefaultMaxRetryDeadline = 5 * time.Second
+	DefaultSessionTimeout = 30 * time.Second
+	MsecTimeDivisor = 1000 * 1000
 )
 
 type Message struct {
@@ -23,7 +27,7 @@ type Message struct {
 
 //New returns a javascript compatible timestamp. (msecs since 1.1.1970, 0am) 
 func Now() (Timestamp){
-	return Timestamp(time.Now().UnixNano() / 1000)
+	return Timestamp(time.Now().UnixNano() / MsecTimeDivisor)
 }
 
 //NewMessage instantiates an empty Message with the given payload.
@@ -68,6 +72,7 @@ func NewFetchRequest(s *StreamSession) *FetchRequest{
 }
 
 type Fetcher struct {
+	sessions map[ID]*StreamSession
 	source Source
 	buf *Buffer
 	backlog *list.List
@@ -97,12 +102,29 @@ func NewFetcher(source Source) (ret *Fetcher,err error) {
 	ret.buf = NewBuffer(DefaultBufferSize)
 	ret.backlog = list.New()
 	ret.notify = make(chan int)
+	ret.sessions = make(map[ID]*StreamSession)
 
 	go func() {
 		ret.BacklogRunner()
 	}()
 
 	return
+}
+
+//Internally used function to determine whether the source stream can be stopped since to more client stream are active.
+func (f* Fetcher) cleanup(timeout Timestamp) {
+	now := Now()
+	for k,v := range f.sessions {
+		dts := Timestamp(now - v.LastAccess)
+		if dts > timeout {
+			log.Printf("Killing session: %d, Timedout since %d seconds.",v.Id,int64(dts / 1000 ))
+			delete(f.sessions,k)
+		}
+	}
+
+	if len(f.sessions) < 1 {
+		f.Stop()
+	}
 }
 
 //Empty clears the entire buffer. All remaining messages will be discarded.
@@ -201,11 +223,16 @@ func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	if f.buf.HasNext(fr.id) {
 		ret = f.buf.Fetch(fr.id)
 	} else {
-		// Reduce offset to 1 in order to avoid future requests
-		fr.id = f.buf.cid +1
-		f.backlog.PushBack(fr)
+		if f.running {
+			// Reduce offset to 1 in order to avoid future requests
+			fr.id = f.buf.cid +1
+			f.backlog.PushBack(fr)
 
-		ret = <-fr.q
+			ret = <-fr.q
+		} else {
+			//This locks
+			return nil
+		}
 	}
 	return
 }
@@ -227,6 +254,7 @@ func (f* Fetcher) BacklogRunner() {
 				f.backlog.Remove(e)
 			}
 		}
+		f.cleanup(Timestamp(DefaultSessionTimeout.Nanoseconds() / MsecTimeDivisor))
 	}
 	log.Printf("BacklogRunner stopped")
 }
@@ -234,25 +262,42 @@ func (f* Fetcher) BacklogRunner() {
 //Start starts the fetcher loop. It blocks and takes all incoming messages and enqueues them to the buffer.
 //Start returns only if the stream is stopped.
 func (f *Fetcher) Start() (err error) {
-	log.Printf("Starting stream.")
-	if err = f.source.Start(); err != nil {
-		log.Printf("Could not start source stream: %s",err)
-		return
-	}
+	ret := make(chan error)
+	go func(ret chan error) {
+		log.Printf("Starting source stream.")
+		//Try to start source stream.
+		for retryCount := 0 ;retryCount < DefaultRetryCount;retryCount++ {
+			startTime := time.Now()
+			if err = f.source.Start(); err != nil {
+				log.Printf("Could not start source stream: %s",err)
+			}
 
-	f.running = true
-	for ;f.running; {
-		message,err := f.source.Next()
-		if (err == nil) {
-			f.buf.Enqueue(message)
-			f.notify<-1
-		} else {
-			log.Printf("Could not fetch next message from source. %s",err)
+			if tdif := time.Now().Sub(startTime); tdif > DefaultMaxRetryDeadline {
+				retryCount = 0 //reset retry counter
+				log.Printf("Reinitiating twitter connection. error within %d seconds. ",tdif)
+			}
 		}
-	}
-	log.Printf("Stream has stopped.")
-	f.buf.Empty()
-	return
+
+		if err != nil {
+			ret <- err
+			return
+		}
+		//TODO: FORK ROUTINE HERE !!! and return success/failure immediately.
+		f.running = true
+		ret <- nil
+		for ;f.running; {
+			message,err := f.source.Next()
+			if (err == nil) {
+				f.buf.Enqueue(message)
+				f.notify<-1
+			} else {
+				log.Printf("Could not fetch next message from source. %s",err)
+			}
+		}
+		log.Printf("Stream has stopped.")
+		f.buf.Empty()
+	}(ret)
+	return <-ret //Wait for routine to be started.
 }
 
 // Stop interrupts the source stream. No more data is enqueued to the buffer anymore until Start() is called.

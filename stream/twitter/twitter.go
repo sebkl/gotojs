@@ -229,7 +229,7 @@ func (s *TwitterSource) Start() (err error) {
 	log.Println("Starting twitter stream.")
 	s.conn,err = s.client.Locations(twitterstream.Point{-90.0,-180.0}, twitterstream.Point{90.0,180.0})
 	if err != nil {
-		log.Print(err)
+		log.Printf("Twitterfeed aborted: %s",err)
 	}
 	return
 }

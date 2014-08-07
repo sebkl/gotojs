@@ -102,6 +102,23 @@ var {{.NS}} = {{.NS}} || {};
 
 		return {{.NS}}.HTTP.Post(crid,url,i,m,args,data,callback);
 	},
+	buildGetUrl: function (i,m,args) {
+		var ret = "{{.BC}}/"+i+"/"+m;
+		var par = ""
+		if(arges.length > 0) {
+			if (par.length <= 0) {
+				par+="?"
+			} else {
+				par+="&"
+			}
+			for (var i in args) {
+				//TODO: Do some encoding here.
+				par+='=' + args[i]
+			}
+			ret+=par
+		}
+		return par
+	},
 	hasCallback: function(args) {
 		return (typeof args[args.length-1] == 'function')
 	},
@@ -188,6 +205,14 @@ var {{.NS}} = {{.NS}} || {};
 	this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
 {{end}}
 	return this.call("{{.MN}}",args);
+};
+
+{{.NS}}.{{.IN}}.{{.MN}}.Url = function() {
+	var args = {{.NS}}.TYPES.proxy.argsToArray(arguments);
+{{if .MA}}
+	{{.NS}}.TYPES.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
+{{end}}
+	return {{.NS}}.TYPES.Proxy.buildGetUrl("{{.IN}}","{{.MN}}",args)
 };
 `,
 	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }

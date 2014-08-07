@@ -66,6 +66,35 @@ type Backend struct {
 	revision uint64
 }
 
+// Mapping of kind to char for method/function signature validation string.
+var kindMapping = map[reflect.Kind]byte{
+	reflect.Bool: 'i',
+	reflect.Int: 'i',
+	reflect.Int8: 'i',
+	reflect.Int16: 'i',
+	reflect.Int32: 'i',
+	reflect.Int64: 'i',
+	reflect.Uint: 'i',
+	reflect.Uint8: 'i',
+	reflect.Uint16: 'i',
+	reflect.Uint32: 'i',
+	reflect.Uint64: 'i',
+	reflect.Uintptr: 'i',
+	reflect.Float32: 'f',
+	reflect.Float64: 'f',
+	reflect.Complex64: '_',
+	reflect.Complex128: '_',
+	reflect.Array: 'a',
+	reflect.Chan: '_',
+	reflect.Func: '_',
+	reflect.Interface: 'o',
+	reflect.Map: 'm',
+	reflect.Ptr: 'i',
+	reflect.Slice: 'a',
+	reflect.String: 's',
+	reflect.Struct: 'o',
+	reflect.UnsafePointer: 'i' }
+
 //NewBackend is a constructor for the BindingContainer data structure.
 func NewBackend() (Backend) {
 	return Backend{
@@ -107,6 +136,33 @@ func (m *Binding) AddInjection(i interface{}) *Binding{
 	}
 	return m
 }
+
+// ValidationString generate a string that represents the signature of a method or function. It
+// is used to perform a runtime validation when calling a JS proxy method.
+func (r *Binding) ValidationString() (ret string){
+	t:=reflect.TypeOf(r.i)
+	var methodType reflect.Type
+	first := 0;
+	if (r.elemNum >= 0) {
+		methodType = t.Method(r.elemNum).Type
+		first =1
+	} else {
+		methodType = t
+	}
+	argCount := methodType.NumIn();
+	for n:=first;n < argCount;n++ {
+		// If a injection is found for this parameter it will
+		// be ignored in the validation string.
+		if _,found := r.injections[n]; found {
+			continue
+		}
+
+		at:= methodType.In(n)
+		ret += string(kindMapping[at.Kind()])
+	}
+	return
+}
+
 
 // AddInjection is a convenience method to AddInjection of type Binding.
 func (bs Bindings) AddInjection(i interface{}) Bindings {
@@ -348,11 +404,11 @@ func (b *Backend) ExposeYourself(args ...string) (ret Bindings) {
 		in = args[0]
 	}
 	ret = make(Bindings,2)
-	ret[0] = b.ExposeFunction(func (b *Backend) []string{
+	ret[0] = b.ExposeFunction(func (b *Backend) map[string]string {
 		bs := b.Bindings()
-		ret := make([]string,len(bs))
-		for i,b := range bs {
-			ret[i] = b.Name()
+		ret := make(map[string]string)
+		for _,b := range bs {
+			ret[b.Name()] = b.ValidationString()
 		}
 		return ret
 	},in,"Bindings").AddInjection(b)[0]

@@ -16,7 +16,6 @@ package gotojs
 
 import (
 	"errors"
-	"reflect"
 	"text/template"
 	"log"
 	"path"
@@ -62,6 +61,7 @@ const (
 	P_PUBLICCONTEXT = 6
 	P_APPLICATIONKEY = 7
 	P_FLAGS = 8
+	P_COOKIENAME = 9
 )
 
 // Internally used constants and default values
@@ -92,35 +92,6 @@ const (
 	tokenArgumentsString = "AS"
 	tokenValidateArguments = "MA"
 )
-
-// Mapping of kind to char for method/function signature validation string.
-var kindMapping = map[reflect.Kind]byte{
-	reflect.Bool: 'i',
-	reflect.Int: 'i',
-	reflect.Int8: 'i',
-	reflect.Int16: 'i',
-	reflect.Int32: 'i',
-	reflect.Int64: 'i',
-	reflect.Uint: 'i',
-	reflect.Uint8: 'i',
-	reflect.Uint16: 'i',
-	reflect.Uint32: 'i',
-	reflect.Uint64: 'i',
-	reflect.Uintptr: 'i',
-	reflect.Float32: 'f',
-	reflect.Float64: 'f',
-	reflect.Complex64: '_',
-	reflect.Complex128: '_',
-	reflect.Array: 'a',
-	reflect.Chan: '_',
-	reflect.Func: '_',
-	reflect.Interface: 'o',
-	reflect.Map: 'm',
-	reflect.Ptr: 'i',
-	reflect.Slice: 'a',
-	reflect.String: 's',
-	reflect.Struct: 'o',
-	reflect.UnsafePointer: 'i' }
 
 type call struct {
 	Interface,Method,CRID string
@@ -174,7 +145,7 @@ type Frontend struct {
 	publicDir string
 	publicContext string
 	fileServer http.Handler
-	key []byte
+	key []byte //key used to enctrypt the cookie.
 	HTTPContextConstructor HTTPContextConstructor
 }
 
@@ -690,31 +661,6 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 	out.Write([]byte(b.cache[ckey].engine))
 }
 
-// ValidationString generate a string that represents the signature of a method or function. It
-// is used to perform a runtime validation when calling a JS proxy method.
-func (r *Binding) ValidationString() (ret string){
-	t:=reflect.TypeOf(r.i)
-	var methodType reflect.Type
-	first := 0;
-	if (r.elemNum >= 0) {
-		methodType = t.Method(r.elemNum).Type
-		first =1
-	} else {
-		methodType = t
-	}
-	argCount := methodType.NumIn();
-	for n:=first;n < argCount;n++ {
-		// If a injection is found for this parameter it will
-		// be ignored in the validation string.
-		if _,found := r.injections[n]; found {
-			continue
-		}
-
-		at:= methodType.In(n)
-		ret += string(kindMapping[at.Kind()])
-	}
-	return
-}
 
 //Context gets or sets the gotojs path context. This path element defines
 //how the engine code where the engine js code is served.

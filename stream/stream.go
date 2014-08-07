@@ -7,7 +7,6 @@ import (
 	. "github.com/sebkl/gotojs"
 	"log"
 	"fmt"
-	"time"
 	"math/rand"
 	"strconv"
 	"os"
@@ -15,110 +14,87 @@ import (
 )
 
 const (
-	DefaultSessionTimeout = 30 //in seconds
 	DefaultMaxRecordCount = 10000 //in count of messages
+	DefaultLazyStart = true
 )
 
 type Configuration struct {
-	SessionTimeout int
+	SessionTimeout Timestamp
 	MaxRecordCount int
 	BufferBitSize int
+	LazyStart bool
 }
 
 type Stream struct {
-	sessions map[ID]*StreamSession
 	fetcher *Fetcher
-	config Configuration
+	Config Configuration
 }
+
 
 //Internally used function to identifiy the users buffer cursor (called Stream) based on its GOTOJS session infromation.
 func (t *Stream) session(session *Session) (s *StreamSession) {
 	iid,_ := strconv.ParseInt(session.Get("ID"),10,64)
 	id := ID(iid)
 
-	if _,ok := t.sessions[id]; !ok {
+	if _,ok := t.fetcher.sessions[id]; !ok {
 		nid := ID(rand.Int63())
 		s = &StreamSession{
 			Id: nid,
 			Next: t.fetcher.buf.cid,
-			Begin: Timestamp(time.Now().UnixNano() / 1000)}
+			Begin: Now()}
 		session.Set("ID",fmt.Sprintf("%d",nid))
 		log.Printf("Created with session with id: %d", nid)
-		t.sessions[nid] = s
+		t.fetcher.sessions[nid] = s
 	} else {
-		s = t.sessions[id]
+		s = t.fetcher.sessions[id]
 	}
 	return s
 }
 
-
 //Method to be exposed for message retrieval. Cursor information is stored in the users GOTOJS session.
 //Clients may frequently call this method to retrieve new messages.
 func (t *Stream) Next(session *Session) (ret []Message) {
-	t.lazyStart()
+	if t.Config.LazyStart && !t.fetcher.running {
+		log.Printf("Starting stream (lazy start).")
+		t.Start()
+	}
+
 	s := t.session(session)
+	s.LastAccess = Now()
 	fr := NewFetchRequest(s)
-	fr.max = ID(t.config.MaxRecordCount)
+	fr.max = ID(t.Config.MaxRecordCount)
 	ret = t.fetcher.Fetch(fr)
-
-	s.Next = ret[len(ret) -1].Id + 1 // Update id
-	s.LastAccess = Timestamp(time.Now().UnixNano() / 1000)
-
+	if ret != nil {
+		s.Next = ret[len(ret) -1].Id + 1 // Update id
+	}
 	return
 }
 
 //Reset resets the users session. The cursor will be deleted and reinitialized.
 func (t* Stream) Reset(session *Session) {
 	s := t.session(session)
-	delete(t.sessions,s.Id)
+	delete(t.fetcher.sessions,s.Id)
 }
 
-// lazyStart checks whether the fetcher is currently running. If yes it returns immediately.
+// Stop stops a stream and purges all open sessions.
+func (t *Stream) Stop() {
+	t.fetcher.Stop()
+	t.fetcher.cleanup(0) //0 indicates to cleanup all active sessions.
+}
+
+// Start checks whether the fetcher is currently running. If yes it returns immediately.
 // If not it is started. This mechanism allows to stop twitter source stream if no scubscribers
 // or sessions are currently open.
-func (t* Stream) lazyStart() {
-	if t.fetcher.running {
-		return
-	} else {
-		go func() {
-			log.Printf("Starting twitterstream process.")
-			if err := t.fetcher.Start(); err != nil {
-				log.Fatal(err)
-			}
-		}()
-
-	}
-}
-
-
-//Internally used function to determine whether the source stream can be stopped since to more client stream are active.
-func (t* Stream) cleanup() {
-	log.Printf("Performing cleanup")
-	now := Timestamp(time.Now().UnixNano() / 1000)
-	for k,v := range t.sessions {
-		dts := Timestamp((now - v.LastAccess) / 1000000)
-		if dts > Timestamp(int64(t.config.SessionTimeout)) {
-			log.Printf("Killing session: %d, Timedout since %d seconds.",v.Id,dts)
-			delete(t.sessions,k)
+func (t* Stream) Start() {
+	if !t.fetcher.running {
+		log.Printf("Starting stream process.")
+		if err := t.fetcher.Start(); err != nil {
+			log.Println(err)
 		}
+	} else {
+		log.Printf("Stream already running.")
 	}
-
-	if len(t.sessions) < 1 {
-		t.fetcher.Stop()
-	}
-	log.Printf("Cleanup done.")
 }
-
-//Internally used process loop to frequently perform a cleanup run.
-func (f* Stream) cleanupRunner() {
-	for ;; {
-		time.Sleep(10 * time.Second)
-		f.cleanup()
-		log.Printf("Buffer[size: %d, cid: %d, sessions: %d]",f.fetcher.buf.size,f.fetcher.buf.cid,len(f.sessions))
-	}
-	log.Printf("CleanupRunner stopped")
-}
-
 
 //NewStream creates a new Stream based on the given Source implementation.
 //The default configuration can be overwritten by a configuration file named "streamconfig.json"
@@ -126,24 +102,25 @@ func NewStream(source Source) (t* Stream,err error) {
 	fetcher,err := NewFetcher(source) // just pass the source connection here.
 
 	t = &Stream{	fetcher: fetcher,
-			config: Configuration{	SessionTimeout: DefaultSessionTimeout,
+			Config: Configuration{	SessionTimeout: Timestamp(DefaultSessionTimeout.Nanoseconds() / 1000),
 						MaxRecordCount: DefaultMaxRecordCount,
+						LazyStart: DefaultLazyStart,
 						BufferBitSize: DefaultBufferSize },
-			sessions: make(map[ID]*StreamSession)}
+			}
 	filename := "streamconfig.json"
 	configFile, oerr := os.Open(filename)
 	if (oerr == nil) {
 		log.Printf("Loading configuration from %s",filename)
 		decoder := json.NewDecoder(configFile)
-		decoder.Decode(t.config)
+		decoder.Decode(t.Config)
 	} else {
 		log.Printf("Could not load configiguration from %s",filename)
 	}
 
-	// Start the cleanup process once.
-	go func() {
-		log.Printf("Starting cleanup process.")
-		t.cleanupRunner()
-	}()
+	// Start fetcher process if no lazy start is configured
+	if !t.Config.LazyStart {
+		log.Printf("Starting buffer routine.")
+		t.Start()
+	}
 	return
 }

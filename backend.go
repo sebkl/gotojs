@@ -137,9 +137,9 @@ func (m *Binding) AddInjection(i interface{}) *Binding{
 	return m
 }
 
-// ValidationString generate a string that represents the signature of a method or function. It
-// is used to perform a runtime validation when calling a JS proxy method.
-func (r *Binding) ValidationString() (ret string){
+// parameterTypeArray is an internally used method to get an
+// array of the method parameter types.
+func (r *Binding) parameterTypeArray(includeInjections bool) []reflect.Type {
 	t:=reflect.TypeOf(r.i)
 	var methodType reflect.Type
 	first := 0;
@@ -149,20 +149,44 @@ func (r *Binding) ValidationString() (ret string){
 	} else {
 		methodType = t
 	}
-	argCount := methodType.NumIn();
+	argCount := methodType.NumIn()
+	ret := make([]reflect.Type,argCount - first)
+	ri := 0
 	for n:=first;n < argCount;n++ {
-		// If a injection is found for this parameter it will
-		// be ignored in the validation string.
-		if _,found := r.injections[n]; found {
+		if _,found := r.injections[n]; !includeInjections && found {
 			continue
 		}
-
 		at:= methodType.In(n)
-		ret += string(kindMapping[at.Kind()])
+		ret[ri] = at
+		ri++
+	}
+	return ret[:ri]
+}
+
+// ValidationString generate a string that represents the signature of a method or function. It
+// is used to perform a runtime validation when calling a JS proxy method.
+func (r *Binding) ValidationString() (ret string){
+	a := r.parameterTypeArray(false)
+	for _,v := range a {
+		ret += string(kindMapping[v.Kind()])
 	}
 	return
 }
 
+// countParameterType counts the amount of paremter this method
+// accepts. Usually used to determine whether it takes a certain
+// argument type.
+func (r *Binding) countParameterType(i interface{}) (ret int) {
+	t := reflect.TypeOf(i)
+	ret = 0
+	a := r.parameterTypeArray(true)
+	for _,v := range a {
+		if v == t {
+			ret++
+		}
+	}
+	return
+}
 
 // AddInjection is a convenience method to AddInjection of type Binding.
 func (bs Bindings) AddInjection(i interface{}) Bindings {
@@ -179,7 +203,6 @@ func (b Backend) SetupGlobalInjection(i interface{}) {
 	b.globalInjections[t] = i
 	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
 }
-
 
 // Match filters the list of Bindings and only returns those bindings whose
 // name matches the given regex pattern.
@@ -215,8 +238,8 @@ func (b *Binding) addGlobalInjections() {
 // NewBinding creates a new binding object that is associated with the given backend.
 // All existing global Injections will be added to this binding.
 func (b *Backend) NewBinding(i interface{},t int,x int, in,mn string) (*Binding) {
-	_,found := b.Binding(in,mn)
-	if found {
+	bind := b.Binding(in,mn)
+	if bind != nil {
 		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
 	} else {
 		if _,f := b.BindingContainer[in]; !f {
@@ -466,13 +489,12 @@ func (b *Binding) Name() string {
 }
 
 // Binding searches a concrete binding by the given interface and method name.
-func (b BindingContainer) Binding(i string, mn string) (r *Binding, found bool) {
-	_,found = b[i];
-	if !found {
+func (b BindingContainer) Binding(i string, mn string) (r *Binding) {
+	if _,found := b[i];!found {
 		return
 	}
 
-	r,found = b[i][mn]
+	r,_ = b[i][mn]
 	return
 }
 
@@ -569,8 +591,7 @@ func (b BindingContainer) Invoke(i,m string, args ...interface{}) interface{} {
 
 // InvokeI is a convenience method for invoking methods/function without prior discovery.
 func (b BindingContainer) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
-	r,found := b.Binding(i,m)
-	if found {
+	if r := b.Binding(i,m);r != nil {
 		return r.InvokeI(inj,args...)
 	} else {
 		panic(fmt.Errorf("Binding \"%s.%s\" not found.",i,m))

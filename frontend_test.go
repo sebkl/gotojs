@@ -6,17 +6,18 @@ import (
 	"bytes"
 	"fmt"
 	"errors"
-	"encoding/json"
 	"net/http"
 	"io/ioutil"
+	"log"
 )
 
 const (
 	nodeCmd = "node"
-	nodeRequire =`
+	nodeJQueryRequire =`
 var $ = require("jquery");
 `
-
+	engineJQuery = "jquery"
+	engineNodeJS = "nodejs"
 )
 
 var frontend *Frontend
@@ -37,12 +38,12 @@ func TestInitialization(t *testing.T) {
 
 //Check whether node JS engine is executable.
 func existsNodeJS() bool {
-	cmd := exec.Command(nodeCmd,"-e \"" + nodeRequire + "\"");
+	cmd := exec.Command(nodeCmd,"-e \"" + nodeJQueryRequire + "\"");
 	err := cmd.Run();
 	return err == nil
 }
 
-func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error){
+func executeJS(t *testing.T,fronted *Frontend,engine string, postCmd ...string) (string,error){
 	t.Logf("Executing nodejs engine \"%s\"...",nodeCmd)
 	cmd := exec.Command(nodeCmd)
 	stdin,err:= cmd.StdinPipe()
@@ -53,9 +54,9 @@ func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	err = cmd.Start()
-	stdin.Write([]byte(nodeRequire)) // Load dependency to simulate domtree.
+	stdin.Write([]byte(nodeJQueryRequire)) // Load dependency to simulate domtree.
 	//frontend.build(&HTTPContext{},"http://localhost:8786/gotojs","jquery",stdin)
-	req,_ := http.NewRequest("GET","http://localhost:8786/gotojs/engine.js",nil)
+	req,_ := http.NewRequest("GET","http://localhost:8786/gotojs/engine." + engine,nil)
 	t.Logf(req.URL.String())
 	t.Logf(frontend.extUrl.String())
 	frontend.build(&HTTPContext{Request: req},stdin)
@@ -74,13 +75,14 @@ func executeJS(t *testing.T,fronted *Frontend, postCmd ...string) (string,error)
 	return resp,err
 }
 
+
 func TestParseJS(t *testing.T) {
 	if !existsNodeJS() {
 		//TODO: Change this to skip
 		t.Logf("Node.js not available. Skipping this test ...",nodeCmd)
 		return
 	}
-	if _,err := executeJS(t,frontend); err != nil {
+	if _,err := executeJS(t,frontend,engineJQuery); err != nil {
 		t.Errorf("Executing nodejs parser failed: %s",err.Error())
 	}
 	t.Logf("Successfully parsed generated JS code.")
@@ -100,6 +102,13 @@ func TestValidationString(t *testing.T) {
 	t.Logf("Validation string for \"%s.%s\" is : %s.","X","test",vs)
 	if vs != "iofsa" {
 		t.Errorf("Incorrect validation string: %s",vs)
+	}
+}
+
+func TestParameterTypeCount(t *testing.T) {
+	frontend.ExposeFunction( func (bc *BinaryContent) { },"a","b")
+	if count := frontend.Binding("a","b").countParameterType(&BinaryContent{}); count != 1 {
+		t.Errorf("Incorrect ParameterTypeCount: %d/%d",count,1)
 	}
 }
 
@@ -137,17 +146,37 @@ func TestRemoveInterface(t *testing.T) {
 	}
 }
 
-func TestSimpleCall(t *testing.T) {
+func TestCallParameter(t *testing.T) {
+	res,_ := http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam/101")
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("Parameter as path failed.")
+	}
+
+	res,_ = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam?p=101")
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("Parameter as query string failed.")
+	}
+
+	res,_ = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam")
+	if res.StatusCode == http.StatusOK {
+		t.Errorf("Negative Test call parameter failed.")
+	}
+}
+
+func TestSimpleJSCall(t *testing.T) {
 	if !existsNodeJS() {
 		t.Logf("Node.js not available. Skipping this test ...",nodeCmd)
 		return
 	}
-	out,err := executeJS(t,frontend,"PROXY.TestService.SetAndGetParam(73,function(x) { if (x != 73) { throw 'failed'; }});");
+	out,err := executeJS(t,frontend,engineJQuery,"PROXY.TestService.SetAndGetParam(73,function(x) { if (x != 73) { throw 'failed was: ' + x; }});");
 	if err != nil {
-		t.Errorf("Executing nodejs parser failed: %s",err.Error())
+		t.Errorf("Executing nodejs parser failed (jqquery engine): %s",err.Error())
+	}
+	out,err = executeJS(t,frontend,engineNodeJS,"PROXY.TestService.SetAndGetParam(73,function(x) { if (x != 73) { throw 'failed was: ' + x; }});");
+	if err != nil {
+		t.Errorf("Executing nodejs parser failed (nodejs engine): %s",err.Error())
 	}
 	t.Logf(out)
-
 }
 
 func TestSimpleCallWithMultipleArgs(t *testing.T) {
@@ -155,7 +184,7 @@ func TestSimpleCallWithMultipleArgs(t *testing.T) {
 		return a+b
 	},"Math","Add")
 
-	out,err := executeJS(t,frontend,"PROXY.Math.Add(17,4, function(r) { if (r != 21) { throw 'Unexpected return value.';}});");
+	out,err := executeJS(t,frontend,engineJQuery,"PROXY.Math.Add(17,4, function(r) { if (r != 21) { throw 'Unexpected return value.';}});");
 	if err != nil {
 		t.Errorf("Executing nodejs parser failed or error occured: %s",err.Error())
 	}
@@ -169,19 +198,19 @@ func TestArgumentValidation(t *testing.T) {
 		t.Logf("Node.js not available. Skipping this test ...",nodeCmd)
 		return
 	}
-	out,err := executeJS(t,frontend,"PROXY.TestService.SetAndGetParam(72,5,function(){});");
+	out,err := executeJS(t,frontend,engineJQuery,"PROXY.TestService.SetAndGetParam(72,5,function(){});");
 	if err == nil {
 		t.Errorf("Executing nodejs parser succeeded. An argument assert error was expected.")
 	}
 	t.Logf(out)
 
-	out,err = executeJS(t,frontend,"PROXY.TestService.SetAndGetParam(74,function(){});");
+	out,err = executeJS(t,frontend,engineJQuery,"PROXY.TestService.SetAndGetParam(74,function(){});");
 	if err != nil {
 		t.Errorf("A callback handler as last parameter must be accepted.")
 	}
 	t.Logf(out)
 
-	out,err = executeJS(t,frontend,"PROXY.TestService.SetAndGetParam('INVALID',function(){})");
+	out,err = executeJS(t,frontend,engineJQuery,"PROXY.TestService.SetAndGetParam('INVALID',function(){})");
 	if err == nil {
 		t.Errorf("Executing nodejs parser succeeded. An argument assert error was expected.")
 	}
@@ -202,23 +231,21 @@ func TestDynamicHTTPContextInjection(t *testing.T) {
 		}
 	},"X","add")
 
-	out,err := executeJS(t,frontend,"PROXY.X.add(1,2,function(val){ if (val != 3) { throw 'Injection failed: ' + val; }});");
+	out,err := executeJS(t,frontend,engineJQuery,"PROXY.X.add(1,2,function(val){ if (val != 3) { throw 'Injection failed: ' + val; }});");
 	if err !=nil {
 		t.Logf(out)
 		t.Errorf("HTTP Context Injection failed.")
 	}
 }
 
-func TestJSONError(t *testing.T) {
+func TestError(t *testing.T) {
 	buf := bytes.NewBufferString("{'abc':'def'}")
 	resp,_ := http.Post("http://localhost:8786/gotojs/TestServer/SetAndGetParam", "test/plain", buf)
-	o := struct {Error string}{}
-	dec:=json.NewDecoder(resp.Body)
-	if err := dec.Decode(&o); err != nil{
-		t.Errorf("Could not decode error message: %s",err.Error())
+	if errh:= resp.Header.Get(DefaultHeaderError); len(errh) == 0 {
+		t.Errorf("No Error header found in response.")
+	} else {
+		t.Logf("Message received: %s",errh)
 	}
-	t.Logf("Message received: %s",o.Error)
-
 }
 
 func TestAutoInjectionFilter(t *testing.T) {
@@ -227,14 +254,15 @@ func TestAutoInjectionFilter(t *testing.T) {
 	defer frontend.Bindings().ClearFilter()
 
 	frontend.Bindings().If(AutoInjectF(func(inj Injections,c *HTTPContext, b *Binding) bool {
+		log.Println(len(inj),b.Name())
 		return len(inj) > 0 && b.Name() == "TestService.SetParam"
 	})).If(AutoInjectF(func(c *HTTPContext) bool {
+		log.Println(c.Request.Method,c.Request.Header.Get("Content-Type"))
 		return c.Request.Method == "POST" && c.Request.Header.Get("Content-Type") == fakeHeader
 	}))
 
 	// Do a quick call to SetParam
-	buf := bytes.NewBufferString("{\"Interface\":\"TestService\",\"Method\":\"SetParam\",\"Data\": [1000]}")
-	_,_ = http.Post("http://localhost:8786/gotojs/TestServer/SetParam", fakeHeader, buf)
+	_,_ = http.Post("http://localhost:8786/gotojs/TestService/SetParam/1000", fakeHeader,bytes.NewBufferString(""))
 
 	frontend.Bindings().ClearFilter()
 	res := frontend.Invoke("TestService","GetParam")

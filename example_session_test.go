@@ -45,20 +45,20 @@ func ExampleFrontend_session() {
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 	http.DefaultClient.Jar,_ = cookiejar.New(nil) // Cookie jar is needed here in order to associate session
 	// First call without previous login should result in a not authorized message.
-	fmt.Println( post("http://localhost:8791/gotojs/","main","private","TestData"))
+	dump(http.Get("http://localhost:8791/gotojs/main/private/TestData"))
 	// Second call has an invalid password
-	fmt.Println( post("http://localhost:8791/gotojs/","main","login","Alice","123456"))
+	dump(http.Get("http://localhost:8791/gotojs/main/login/Alice/123456"))
 	// Third call is a coorect login
-	fmt.Println( post("http://localhost:8791/gotojs/","main","login","Alice","12345"))
+	dump(http.Get("http://localhost:8791/gotojs/main/login/Alice/12345"))
 	// Lat call is a successfull request for private data.
-	fmt.Println( post("http://localhost:8791/gotojs/","main","private","TestData"))
+	dump(http.Get("http://localhost:8791/gotojs/main/private/TestData"))
 	http.DefaultClient.Jar = nil // Remove the cookie jar
 
 	// Output: 
-	// {"CRID":"TEST","Data":null}
-	// {"CRID":"TEST","Data":"Invalid password."}
-	// {"CRID":"TEST","Data":"OK"}
-	// {"CRID":"TEST","Data":"This is private TestData of user Alice"}
+	// null
+	// "Invalid password."
+	// "OK"
+	// "This is private TestData of user Alice"
 }
 
 

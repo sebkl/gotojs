@@ -24,34 +24,37 @@ var defaultTemplate = Template {
 /* ### JS/HTTP jquery #### */
 var {{.NS}} = {{.NS}} || {
 	'HTTP': {
-		Post: function(crid,url,i,m,args,data,callback) {
+		Call: function(crid,url,i,m,data,imt,callback,method) {
 			var ret;
 			$.ajax( {
-				type: 'POST',
+				type: method || 'POST',
 				url: url,
+				headers: {
+					"{{.IH}}": crid,
+					"Content-Type": imt
+				},
 				data: data,
-				success: function(d) {
-					if (typeof(d) =='string') {
+				success: function(d,textStatus,request) {
+					var mt = request.getResponseHeader('Content-Type');
+					if (typeof(d) =='string' && mt == "{{.CT}}") {
 						ret = eval('(' + d + ')');
 					} else {
-						ret = d;
+						ret = d
 					}
-					if (ret['Data'] && ret['CRID'] == crid) {
-						ret = ret['Data']
-						if (callback) {
-							callback(ret);
-						} 
-					} else {
-						throw ("IFAIL["+crid+"] \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + ret);
-					}
+
+					if (callback) {
+						callback(ret);
+					} 
 				},
 				async: callback !== undefined,
 				error: function(o,estring,e) {
-					throw /*console.log*/("FAIL : \"" + i + "." + m + "(" + args.join(",")+")\" @ " + url + ":\n" + data + "\n=>" + e);
+					throw /*console.log*/("FAIL : ["+crid+"]["+url+"]["+imt+"][" + o.status + "]["+o.getResponseHeader('x-gotojs-error')+"]["+data+"]\n" + estring + "," + e);
 				}
 			});
 			return ret;
-		}
+		},
+		CRIDHeaderName: "{{.IH}}",
+		GOTOJSContentType: "{{.CT}}"
 	}
 }
 `,
@@ -85,27 +88,40 @@ var {{.NS}} = {{.NS}} || {};
 {{.NS}}.TYPES.Proxy.prototype = {
 	/*Methods */
 	constructor: {{.NS}}.TYPES.Proxy,
-	call: function(i,m,args) {
+	Call: function(i,m,args,bin,mt) {
 		var url ="{{.BC}}/"+i+"/"+m;
 		var callback = undefined;
+		var method = "POST"
+
 		if (this.hasCallback(args)) {
 			callback = args.pop();
 		}
 
 		var crid = {{.NS}}.CONST.CHASH + "." + (this.callCounter++);
-		var data = JSON.stringify({
-			'Interface': i,
-		    	'Method': m,
-		    	'CRID': crid,
-		    	'Data': args
-		});
+		var data = ""
+		if (bin !== undefined) {
+			for (var i in args) { // Encode parameters
+				args[i] = encodeURIComponent(args[i]);
+			}
 
-		return {{.NS}}.HTTP.Post(crid,url,i,m,args,data,callback);
+			if (args.length > 0) {
+				url += "?" + args.join("&p=");
+			}
+
+			data = bin;
+			mt = mt || "application/octet-stream";
+			method = "PUT"
+		} else {
+			data = JSON.stringify(args);
+			mt = "{{.CT}}";
+		}
+
+		return {{.NS}}.HTTP.Call(crid,url,i,m,data,mt,callback,method);
 	},
 	buildGetUrl: function (i,m,args) {
 		var ret = "{{.BC}}/"+i+"/"+m;
 		var par = ""
-		if(arges.length > 0) {
+		if(args.length > 0) {
 			if (par.length <= 0) {
 				par+="?"
 			} else {
@@ -117,7 +133,7 @@ var {{.NS}} = {{.NS}} || {};
 			}
 			ret+=par
 		}
-		return par
+		return ret
 	},
 	hasCallback: function(args) {
 		return (typeof args[args.length-1] == 'function')
@@ -134,7 +150,7 @@ var {{.NS}} = {{.NS}} || {};
 		var sl = as.length;
 		/* Argument count either matchs or last argument is a callback function. */
 		if (!((al == sl) ||  ((al-1 == sl) && this.hasCallback(args)))) {
-			throw "Invalid argument count (" + al + ") for method \""+i+"." + m + "("+as+")";
+			throw "Invalid argument count (" + al + "/" + al + ") for method \""+i+"." + m + "("+as+")";
 		}
 
 		for (var idx in as) {
@@ -191,28 +207,42 @@ var {{.NS}} = {{.NS}} || {};
 }
 {{.NS}}.TYPES.INTERFACES.{{.IN}}.prototype = {
 	/* Methods */
-	call: function(m,args) {
-		return this.proxy.call(this.name,m,args);
+	Call: function(m,args,bin) {
+		return this.proxy.Call(this.name,m,args,bin);
 	}
 };
 {{.NS}}.{{.IN}} = new {{.NS}}.TYPES.INTERFACES.{{.IN}}()
 `,
 	Method: `
 /* #### JS/METHOD #### */
+
 {{.NS}}.{{.IN}}.{{.MN}} = function() {
 	var args = this.proxy.argsToArray(arguments);
+
+	if ("{{.ME}}" == "PUT") {
+		var bin = args.pop();
 {{if .MA}}
-	this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
+		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
 {{end}}
-	return this.call("{{.MN}}",args);
+		return this.Call("{{.MN}}",args,bin);
+	} else {
+{{if .MA}}
+		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
+{{end}}
+		return this.Call("{{.MN}}",args);
+	}
+};
+
+{{.NS}}.{{.IN}}.{{.MN}}.getValidationString = function() {
+	return "{{.AS}}";
 };
 
 {{.NS}}.{{.IN}}.{{.MN}}.Url = function() {
-	var args = {{.NS}}.TYPES.proxy.argsToArray(arguments);
+	var args = {{.NS}}.{{.IN}}.proxy.argsToArray(arguments);
 {{if .MA}}
-	{{.NS}}.TYPES.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
+	{{.NS}}.{{.IN}}.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
 {{end}}
-	return {{.NS}}.TYPES.Proxy.buildGetUrl("{{.IN}}","{{.MN}}",args)
+	return {{.NS}}.{{.IN}}.proxy.buildGetUrl("{{.IN}}","{{.MN}}",args);
 };
 `,
 	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }
@@ -224,42 +254,39 @@ var {{.NS}} = {{.NS}} || {
 		Request: require('request'),
 		URL: "{{.BC}}",
 		Jar: null,
-		Post: function(crid,url,i,m,args,data,callback) {
+		Call: function(crid,url,i,m,data,imt,callback,method) {
 			var ret = { state: "loading",data: null };
 			if (callback === undefined) {
 				callback = function(d) { console.log(d); ret.data = d;ret.state="finished";}
 			}
 			this.Request({
 				uri: this.URL + "/" + i + "/" + m,
-				method: "POST",
+				method: method || "POST",
 				jar: this.Jar,
-				headers: {'content-type' : 'application/json'},
+				headers: {'content-type' : imt, '{{.IH}}': crid},
 				timeout: 10000,
 				body: data,
 				followRedirect: true
 			}, function(error, response, d) {
 				if (error) {
-					throw ("FAIL1["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + error);
+					throw ("FAIL1["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + error);
 				}
 
-				if (typeof(d) =='string') {
+				if (typeof(d) =='string' && response.headers["Content-Type"] == "{{.CT}}") {
 					try {
-						ret.data = eval('(' + d + ')');
+						ret = eval('(' + d + ')');
 					} catch (e) {
-						throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
+						throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
 					}
 				} else {
-					ret.data = d;
+					ret = d;
 				}
-
-				if (ret.data['Data'] && ret.data['CRID'] == crid) {
-					callback(ret.data['Data']);
-				} else {
-					throw ("FAIL3["+crid+"] '" + i + "." + m + "(" + args.join(",")+")' @ " + url + ":\n" + data + "\n=>" + ret);
-				}
+				callback(ret);
 			});
 			return ret;
-		}
+		},
+		CRIDHeaderName: "{{.IH}}",
+		GOTOJSContentType: "{{.CT}}"
 	}
 };
 {{.NS}}.HTTP.Jar = {{.NS}}.HTTP.Request.jar();

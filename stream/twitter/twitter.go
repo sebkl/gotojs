@@ -43,11 +43,11 @@ type Tweet  struct {
 type TwitterStreamConfig struct {
 	ThumbnailMethod string `json:"ThumbnailMethod"` // [api,url,dataurl]
 	ThumbnailSize int `json:"ThumbnailSize"`
-	ThumbnailAPICall string `json:"ThumbnailAPICall"`
+	ThumbnailAPICall string `json:"ThumbnailAPICall"` // "Image/Thumbnail?p=%s&p=%s&p=%s"
 	NudeFilter bool `json:"NudeFilter"`
 	TranscodeWorker int `json:"TranscodeWorker"`
 	TranscodeBuffer int `json:"TranscodeBuffer"`
-	BaseUrl string `json:"BaseUrl"`
+	BaseUrl string `json:"BaseUrl"` // "http://localhost:8080/gotojs/"
 }
 
 func (s *TwitterStreamConfig) JSON() string {
@@ -169,7 +169,7 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 					Sender: tweet.User.ScreenName }
 			} else {
 				//return mes, err = errors.New("Invalid tweet.")
-				log.Printf("Invlid tweet received. Ignoring.")
+				log.Printf("Invalid tweet received. Ignoring.")
 				continue
 			}
 
@@ -200,7 +200,7 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 						payload.Thumbnail = s.streamConfig.APIUrl(iu[0])
 					case "url":
 						payload.Thumbnail = iu[0]
-					default:
+					default: //"dataurl"
 						req := &imgurl.Request{
 							Url: iu[0],
 							Payload: payload,

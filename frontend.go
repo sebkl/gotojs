@@ -44,6 +44,7 @@ const (
 	F_LOAD_TEMPLATES = 1<<1
 	F_VALIDATE_ARGS = 1<<2
 	F_ENABLE_ACCESSLOG = 1<<3
+	F_ENABLE_MINIFY = 1 <<4
 	F_DEFAULT =	F_LOAD_LIBRARIES |
 			F_LOAD_TEMPLATES |
 			F_VALIDATE_ARGS |
@@ -72,6 +73,7 @@ const (
 	BindingTemplate= "binding.js"
 	InterfaceTemplate= "interface.js"
 	MethodTemplate= "method.js"
+	CTHeader = "Content-Type"
 	DefaultNamespace = "GOTOJS"
 	DefaultContext = "/gotojs"
 	//DefaultEnginePath = "_engine.js"
@@ -84,6 +86,9 @@ const (
 	DefaultCookiePath = "/gotojs"
 	DefaultPlatform = "jquery"
 	DefaultMimeType = "application/json"
+	DefaultHeaderCRID = "x-gotojs-crid"
+	DefaultHeaderError = "x-gotojs-error"
+	DefaultCRID = "undefined"
 
 	tokenNamespace = "NS"
 	tokenInterfaceName = "IN"
@@ -91,21 +96,10 @@ const (
 	tokenBaseContext = "BC"
 	tokenArgumentsString = "AS"
 	tokenValidateArguments = "MA"
+	tokenHttpMethod = "ME"
+	tokenHeaderCRID = "IH"
+	tokenContentType = "CT"
 )
-
-type call struct {
-	Interface,Method,CRID string
-	Data []interface{}
-}
-
-type outgoingMessage struct {
-	CRID string
-	Data interface{}
-}
-
-type errorMessage struct {
-	Error string
-}
 
 type cache struct {
 	engine string
@@ -120,11 +114,58 @@ type Binary interface {
 	MimeType() string
 }
 
+//BinaryContent is an internal implementation to wrap a PUT/POST call as a Binary interface
+type BinaryContent struct { *http.Request }
+
+func (b *BinaryContent) MimeType() string {
+	return b.Request.Header.Get(CTHeader)
+}
+
+func (b *BinaryContent) Read(p []byte) (n int, err error) {
+	return b.Request.Body.Read(p)
+}
+
+func (b *BinaryContent) Close() error {
+	return b.Request.Body.Close()
+}
+
+func (b *BinaryContent) Catch() (ret []byte, err error) {
+	ret, err = ioutil.ReadAll(b.Request.Body)
+	if err != nil {
+		return
+	}
+	err = b.Request.Body.Close()
+	return
+}
+
+func NewBinaryContent(req *http.Request) (ret *BinaryContent) {
+	if req.Body != nil {
+		ret = &BinaryContent{req}
+	}
+	return
+}
+
 type HTTPContextConstructor func(*http.Request,http.ResponseWriter) *HTTPContext
 
 // NewHTTPContext creates a new HTTP context based on incoming 
 func NewHTTPContext(request *http.Request, response http.ResponseWriter) *HTTPContext {
-	return &HTTPContext{Request: request,Response: response, Client: http.DefaultClient}
+	return &HTTPContext{
+		Request: request,
+		Response: response,
+		Client: http.DefaultClient,
+		ErrorStatus: http.StatusInternalServerError,
+		ReturnStatus: http.StatusOK,
+	}
+}
+
+// Errorf sets the current HTTP context into an error state with the given status code
+// and formated error message.
+func (c *HTTPContext) Errorf(status int ,f string, args ...interface{})  {
+	c.ErrorStatus = status
+	hv :=fmt.Sprintf(f,args...)
+	c.Response.Header().Set(DefaultHeaderError,hv)
+	//log.Printf("%d: %s",status,hv)
+	panic(hv)
 }
 
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
@@ -261,6 +302,8 @@ type HTTPContext struct{
 	Client *http.Client
 	Request *http.Request
 	Response http.ResponseWriter
+	ErrorStatus int
+	ReturnStatus int
 }
 
 // Session tries to extract a session from the HTTPContext.
@@ -349,8 +392,16 @@ func NewFrontend(args ...Parameters) (*Frontend){
 		}
 	}
 
+	// HTTPContext is always availabel, dummy will never be used
 	f.SetupGlobalInjection(&HTTPContext{})
+
+	//Session is always available if request (by method parameter), dummy, will never be used
 	f.SetupGlobalInjection(&Session{})
+
+	// BinaryContent may be nil
+	var bc *BinaryContent = nil
+	f.SetupGlobalInjection(bc)
+
 	f.mux = http.NewServeMux();
 	return &f
 }
@@ -590,7 +641,7 @@ func Minify(c *HTTPContext,source []byte) []byte {
 // TODO: Improve minify step.
 func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 	p:=platform(c.Request)
-	url := externalUrlFromRequest(c.Request)
+	url := b.externalUrlFromRequest(c.Request)
 	ckey,baseUrl := b.engineCacheKey(url,p)
 
 	if _,exists := b.cache[ckey];!exists {
@@ -623,6 +674,8 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 		proxyParams := map[string]string{
 			tokenNamespace: b.namespace,
 			tokenValidateArguments: vav,
+			tokenHeaderCRID: DefaultHeaderCRID,
+			tokenContentType: DefaultMimeType,
 			tokenBaseContext: baseUrl }
 
 		//TODO: check which params are actually needed here.
@@ -641,17 +694,29 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 			// (4) Method objects
 			methods := b.BindingContainer.BindingNames(in)
 			for _,m := range methods {
-				bi,_ := b.Binding(in,m)
+				bi := b.Binding(in,m)
 				vs:= bi.ValidationString()
+
+				//Check if binary content is expected. IN this case the PUT method is used.
+				meth := "POST"
+				if c := bi.countParameterType(&BinaryContent{}); c > 0 {
+					meth = "PUT"
+				}
+
 				methodParams := Append(map[string]string{
 					tokenMethodName: m,
+					tokenHttpMethod: meth,
 					tokenArgumentsString: vs},interfaceParams)
 				b.template[p].Lookup(MethodTemplate).Execute(minbuf,methodParams)
 			}
 		}
 
 		//Minification
-		buf.Write(Minify(c,minbuf.Bytes()))
+		if (b.flags & F_ENABLE_MINIFY) > 0 {
+			buf.Write(Minify(c,minbuf.Bytes()))
+		} else {
+			buf.Write(minbuf.Bytes())
+		}
 
 		//Set the cache 
 		b.cache[ckey].engine = buf.String()
@@ -687,6 +752,7 @@ func (f *Frontend) EnableFileServer(args ...string) {
 	}
 
 	if _,err := os.Stat(f.publicDir); err == nil {
+		log.Printf("FileServer enabled at '/%s'",f.publicContext)
 		f.fileServer = http.StripPrefix("/"+f.publicContext+"/",http.FileServer(http.Dir(f.publicDir)))
 		f.mux.Handle("/" + f.publicContext + "/",f.fileServer)
 	} else {
@@ -730,6 +796,7 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	}
 
 	// Setup gotojs engine handler.
+	log.Printf("GotojsEngine enabled at '%s'",f.context)
 	f.mux.Handle(f.context + "/",f)
 
 	if f.flags & F_ENABLE_ACCESSLOG  > 0{
@@ -775,27 +842,14 @@ func (f* Frontend) Redirect(pattern,url string) {
 func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 	f.mux.HandleFunc(pattern, func(w http.ResponseWriter,r *http.Request) {
 		if len(mime) > 0 {
-			w.Header().Set("Content-Type", mime[0])
+			w.Header().Set(CTHeader, mime[0])
 		}
 		w.Write([]byte(content))
 	})
 }
 
-// ErrorToJSON translate a go error into a JSON object.
-func ErrorToJSONString(e error) string {
-	mes := "unknown"
-	if e != nil {
-		mes = e.Error()
-	}
-	b,_:= json.Marshal(errorMessage{Error: mes })
-	buf := new(bytes.Buffer)
-	buf.Write(b)
-	return buf.String()
-}
-
-
 //externalUrlFromRequest builds a full qualified URL from the given request object.
-func externalUrlFromRequest(r *http.Request) (ret *url.URL) {
+func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 	ret = &url.URL{}
 	if r.TLS == nil {
 		ret.Scheme = "http"
@@ -803,125 +857,152 @@ func externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 		ret.Scheme = "https"
 	}
 	ret.Host = r.Host
-	ret.Path = r.URL.Path
+
+	if elems := strings.SplitAfterN(r.URL.Path,f.context,2); len(elems) == 2 {
+		ret.Path = elems[0]
+	} else {
+		ret.Path = r.URL.Path
+	}
+
 	ret.RawQuery = r.URL.RawQuery
 	ret.Fragment = r.URL.Fragment
 	return
 }
 
-// converStringParams tries to convert the given string parameter to the real ones needed
+// convertParam tries to convert the given string parameter to the real ones needed
 // by the call invocation. The validation string is used to identify the target type.
-func (b *Binding) convertStringParams(args []string) (iargs []interface{},err error) {
+func (b *Binding) convertStringParam(arg string, pindex int) (ret interface{}) {
 	vs := b.ValidationString()
-	iargs = make([]interface{},len(args))
-
-	for i,a := range args{ // Convert string array to interface{} array
-		var v interface{} = nil
-		switch vs[i] { // Only simple types supported. TODO: Offer Json Parsing.
-			case 'i':
-				v,err = strconv.Atoi(a)
-			case 'f':
-				v,err = strconv.ParseFloat(a,64)
-			default:
-				v = a
-		}
-		iargs[i] = v
+	var err error
+	switch vs[pindex] { // Only simple types supported. TODO: Offer Json Parsing.
+		case 'i':
+			ret,err = strconv.Atoi(arg)
+		case 'f':
+			ret,err = strconv.ParseFloat(arg,64)
+		default:
+			ret = arg
+	}
+	if err != nil {
+		panic(err)
 	}
 	return
 }
 
-// ServeHTTP processes http request. Depending on the method either a call is expected (POST) or 
-// the JS engine is returned (GET)
+// ServeHTTP processes http request. The behaviour depends on the path and method of the call ass follows:
+//	"POST": regular binding call. Interface and method name as well as parameter 
+//		are expected in the body of the POST call as a JSON object.
+//	"GET":  If the call points to a binding ("/<interface>/<method>"), the binding will be
+//		invoked using the url-parameter in the given order (parameter names are ignored):
+//		i.e "/gotojs/Test/Hello?p=My&x=Name&z=is&p=Earl" would invoke the signature
+//		func (string,string,string,String).
+//		If the call does not point to a binding like ("/gotojs") the engine code is returned.
+//	"PUT":  Same as get but allows binary content in the body.
+// If the handler of gotojs needs to be taken directly, the method Mux() should be used instead.
+// TODO: fix this make frontend being the muxer
 func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
-	mt := DefaultPlatform
+	mt := DefaultMimeType
+	obuf := new(bytes.Buffer)
+	crid := DefaultCRID
+	var httpContext *HTTPContext
 	defer func() {
+		w.Header().Set(CTHeader,mt)
+		w.Header().Set(DefaultHeaderCRID,crid)
 		if re:=recover();re!=nil {
-			e := errors.New(fmt.Sprintf("%s",re))
-			http.Error(w,ErrorToJSONString(e),http.StatusInternalServerError)
+			mes := fmt.Sprintf("/*\n\n%s\n\n*/",re)
+			if httpContext != nil {
+				http.Error(w,mes,httpContext.ErrorStatus)
+			} else {
+				//Happens only if Context Constructor fails.
+				http.Error(w,mes,http.StatusInternalServerError)
+			}
 			debug.PrintStack()
+		} else {
+			w.WriteHeader(httpContext.ReturnStatus)
 		}
+		obuf.WriteTo(w)
 		r.Body.Close()
 	}()
 
-	httpContext := f.HTTPContextConstructor(r,w)
+	httpContext = f.HTTPContextConstructor(r,w)
+	if crid = httpContext.Request.Header.Get(DefaultHeaderCRID); len(crid) == 0 {
+		crid = DefaultCRID
+	}
+
 	session := httpContext.Session(f.key)
-	obuf := new(bytes.Buffer)
 
-	defer func() {
-		session.Flush(w,f.key) //Update session on client side if necessary.
-		w.Header().Set("Content-Type",mt)
-		obuf.WriteTo(w)
-	}()
+	defer session.Flush(w,f.key) //Update session on client side if necessary.
 
-	switch r.Method {
-		case "POST":
-			dec:=json.NewDecoder(r.Body)
-			var m call
-			if e := dec.Decode(&m); e != nil{
-				panic(e)
-			}
+	path := r.URL.Path
+	if strings.Contains(path,f.context) {//TODO: make condition more accurate.
+		sub:= strings.SplitAfterN(path,f.context,2)
+		elems := strings.Split(sub[1],"/")
 
-			if b,found := f.Binding(m.Interface,m.Method); found {
-				if len(b.ValidationString()) != len(m.Data) {
-					http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d",len(m.Data),len(b.ValidationString()))),http.StatusBadRequest)
-					return
-				} else {
-					mt = b.processCall(obuf,NewI(httpContext,session),m.CRID,m.Data...)
-				}
-			} else {
-				http.Error(w,ErrorToJSONString(errors.New(fmt.Sprint("Binding %s.%s not found.",m.Interface,m.Method))),http.StatusNotFound)
-				return
-			}
-			w.Header().Set("Content-Type",mt)
-		case "GET":
-			path := r.URL.Path
-			if strings.Contains(path,f.context) {
-				sub:= strings.SplitAfterN(path,f.context,2)
-				elems := strings.Split(sub[1],"/")
+		if len(elems) >= 3 {
+			elems = elems[1:]
 
-				if len(elems) > 0 {
-					elems = elems[1:]
+			//Check if binding exists
+			if b := f.Binding(elems[0],elems[1]); b!=nil {
+				//TODO: extract function to retrieve parameters from call.
+				args := make([]interface{},0)
+				ac := 0
+
+				//Take paremeters from path
+				for _,v := range elems[2:] {
+					args = append(args,b.convertStringParam(v,ac))
+					ac++
 				}
 
-				if len(elems) >= 2 {
-					if b,f := f.Binding(elems[0],elems[1]); f {
-						args := elems[2:]
-						if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
-							for _,v := range vals {
-								args = append(args,v...)
-							}
+				//Check if the query string contains parameters
+				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
+					for _,v := range vals {
+						for _,vv := range v {
+							args = append(args,b.convertStringParam(vv,ac))
+							ac++
 						}
-
-						if len(b.ValidationString()) != len(args) {
-							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter count: %d/%d %s",len(args),len(b.ValidationString()),args)),http.StatusBadRequest)
-							return
-						}
-						iargs,err := b.convertStringParams(args)
-
-						if err != nil {
-							http.Error(w,ErrorToJSONString(fmt.Errorf("Invalid parameter type for GET call. '%s': %s",args,err)),http.StatusBadRequest)
-							return
-						}
-						mt = b.processCall(obuf,NewI(httpContext,session),"",iargs...)
-						w.Header().Set("Content-Type",mt)
-						return
-					} else {
-						http.Error(w,ErrorToJSONString(errors.New(fmt.Sprintf("Binding %s.%s not found.",elems[0],elems[1]))),http.StatusNotFound)
-						return
 					}
 				}
 
+				//Parameter in json body are only excepted for POST calls
+				if ct := httpContext.Request.Header.Get(CTHeader); ct == DefaultMimeType && r.Method == "POST" {
+					dec:=json.NewDecoder(r.Body)
+					var i []interface{}
+					if e:= dec.Decode(&i); e != nil {
+						panic(e)
+					}
+
+					args = append(args,i...)
+				}
+
+				if len(b.ValidationString()) != len(args) {
+					httpContext.Errorf(http.StatusBadRequest,"Invalid parameter count: %d/%d %s",len(args),len(b.ValidationString()),args)
+					return
+				}
+
+				switch r.Method {
+					case "GET":
+						mt = b.processCall(obuf,NewI(httpContext,session),args...)
+					default:
+						mt = b.processCall(obuf,NewI(httpContext,session,NewBinaryContent(r)),args...)
+				}
+			} else {
+				httpContext.Errorf(http.StatusNotFound,"Binding %s.%s not found.",elems[0],elems[1])
 			}
-			w.Header().Set("Content-Type","application/javascript")
+		} else {
+			log.Printf("Sending Engine.")
+			mt = "application/javascript"
 			f.build(httpContext,obuf)
-		default:
-			http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
+		}
+	} else {
+		//Not Gotojs context
+		httpContext.Errorf(http.StatusNotFound,"Not within gotojs context.")
+		return;
 	}
+	//http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 }
 
 // Internally used method to process a call. Input parameters, interface name and method name a read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
-func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...interface{}) (mime string) {
+func (f *Binding) processCall(out io.Writer,injs Injections,args ...interface{}) (mime string) {
 	var b []byte
 	var err error
 	defer func() {Log("CALL","-",f.interfaceName + "." + f.elemName,strconv.Itoa(len(b))) }()
@@ -932,11 +1013,7 @@ func (f *Binding) processCall(out io.Writer,injs Injections,id string,args ...in
 		b, err = ioutil.ReadAll(bin)
 		mime = bin.MimeType()
 	} else {
-		o := outgoingMessage{
-			CRID: id,
-			Data: ret}
-
-		b, err = json.Marshal(o)
+		b, err = json.Marshal(ret)
 		mime = DefaultMimeType
 	}
 

@@ -1,6 +1,8 @@
 package gotojs
 
 import (
+	"net/http"
+	"io/ioutil"
 	"fmt"
 	"log"
 	"time"
@@ -29,8 +31,11 @@ func ExampleFrontend_interface() {
 	go func() {log.Fatal(frontend.Start("localhost:8790"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
-	fmt.Println( post("http://localhost:8790/gotojs/","Service","Hello","TestEngine") )
+
+	resp,_ := http.Get("http://localhost:8790/gotojs/Service/Hello/TestEngine")
+	b,_ := ioutil.ReadAll(resp.Body)
+	fmt.Println( string(b) )
 
 	// Output: 
-	// {"CRID":"TEST","Data":"Hello TestEngine, how are you ? Regards, TestService."}
+	// "Hello TestEngine, how are you ? Regards, TestService."
 }

@@ -4,9 +4,8 @@ import (
 	"net/http"
 	"fmt"
 	"log"
-	"bytes"
 	"time"
-	"strings"
+	"io/ioutil"
 )
 
 func ExampleFrontend() {
@@ -28,24 +27,19 @@ func ExampleFrontend() {
 	go func() {log.Fatal(frontend.Start("localhost:8787"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
-	fmt.Println( post("http://localhost:8787/gotojs/","Example","Hello","TestEngine") )
+
+	// Parameters read from the url path.
+	dump(http.Get("http://localhost:8787/gotojs/Example/Hello/TestEngine"))
+
+	// Parameter can also be read from query string.
+	dump(http.Get("http://localhost:8787/gotojs/Example/Hello?p=TestEngine"))
 
 	// Output: 
-	// {"CRID":"TEST","Data":"Hello TestEngine, how are you ? (@/gotojs/)"}
+	// "Hello TestEngine, how are you ? (@/gotojs/Example/Hello/TestEngine)"
+	// "Hello TestEngine, how are you ? (@/gotojs/Example/Hello?p=TestEngine)"
 }
 
-
-// Post performs a call to the gotojs proxy backend without the JS engine.
-// It show how the JS engine internally converts method invocations into HTTP
-// POST requests.
-func post(url,in,mn string, name ...string) string{
-	ibuf:= bytes.NewBufferString("{ \"CRID\":\"TEST\",\"Interface\": \"" + in + "\",\"Method\": \"" + mn + "\", \"Data\": [\"" + strings.Join(name,"\",\"") + "\"] }")
-	obuf:= new(bytes.Buffer)
-	resp, err := http.DefaultClient.Post(url,"application/json",ibuf)
-	if err != nil {
-		log.Fatalf("Failed to perform post call: %s",err.Error())
-	}
-	obuf.ReadFrom(resp.Body)
-	defer resp.Body.Close()
-	return obuf.String()
+func dump(resp *http.Response,err error) {
+	b,_ := ioutil.ReadAll(resp.Body)
+	fmt.Println( string(b) )
 }

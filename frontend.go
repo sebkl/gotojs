@@ -48,7 +48,8 @@ const (
 	F_DEFAULT =	F_LOAD_LIBRARIES |
 			F_LOAD_TEMPLATES |
 			F_VALIDATE_ARGS |
-			F_ENABLE_ACCESSLOG
+			F_ENABLE_ACCESSLOG |
+			F_ENABLE_MINIFY
 )
 
 // Identifier of initialization parameter
@@ -601,9 +602,9 @@ func platform(r *http.Request) string {
 
 //Minify tries to cpmpile the given javascript source code using the google closure compiler.
 // If the closure compiler failes it falls back to a pure go implementation.
-func Minify(c *HTTPContext,source []byte) []byte {
+func Minify(c *http.Client,source []byte) []byte {
 	//Use Closure compiler API first:
-	client := &compilerapi.Client{HTTPClient: c.Client,Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
+	client := &compilerapi.Client{HTTPClient: c,Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
 	o := client.Compile(source)
 	if len(o.Errors) <= 0 && o.ServerErrors == nil && len(o.CompiledCode) > 10  {
 		return []byte(o.CompiledCode)
@@ -713,7 +714,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 
 		//Minification
 		if (b.flags & F_ENABLE_MINIFY) > 0 {
-			buf.Write(Minify(c,minbuf.Bytes()))
+			buf.Write(Minify(c.Client,minbuf.Bytes()))
 		} else {
 			buf.Write(minbuf.Bytes())
 		}

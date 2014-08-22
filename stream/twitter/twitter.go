@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"runtime/debug"
 )
 
 type twitterConfiguration struct {
@@ -122,6 +123,7 @@ func (s *TwitterSource) Next() (mes Message,err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("Recovered in Next", r)
+			debug.PrintStack()
 			err = errors.New("Panic in Next call.")
 		}
 	}()

@@ -388,13 +388,18 @@ func BenchmarkFrontend (b *testing.B) {
 	}
 }
 
-func TestExposeProxy(t *testing.T) {
-	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/gotojs/Bindings",":asdasd","Remote","Bindings")
-	log.Println(b[0].injections)
-	//args := make([]interface{},1)
-	//args[0] = "test"
+func TestExposeProxyBase(t *testing.T) {
+	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/GetParam",":asdasd","Proxy","GetParam")
 	ret := b.InvokeI(NewI(&HTTPContext{},&Session{}))
-	t.Logf("%s",ret)
+	if rv,ok := ret.(float64); !ok || rv != 1000 {
+		t.Errorf("Simple remote get call failed: %d",ret)
+	}
+
+	b = frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/SetAndGetParam",":asdasd","Proxy","SetAndGetParam")
+	ret = b.InvokeI(NewI(&HTTPContext{},&Session{}),1001)
+	if rv,ok := ret.(float64); !ok || rv != 1001 {
+		t.Errorf("Simple remote get call failed: %d",ret)
+	}
 }
 
 

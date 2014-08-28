@@ -89,6 +89,7 @@ const (
 	DefaultMimeType = "application/json"
 	DefaultHeaderCRID = "x-gotojs-crid"
 	DefaultHeaderError = "x-gotojs-error"
+	DefaultProxyHeader = "x-gotojs-proxy"
 	DefaultCRID = "undefined"
 
 	tokenNamespace = "NS"
@@ -328,6 +329,11 @@ func (c *HTTPContext) Session(key []byte) (s *Session){
 		s = SessionFromCookie(cookie,key)
 	}
 	return s
+}
+
+//CRID returns the coreltation id if existing. Otherwise nil.
+func (c *HTTPContext) CRID() string {
+	return c.Request.Header.Get(DefaultHeaderCRID)
 }
 
 // NewFrontend creates a new proxy frontend object. Required parameter are the configuration flags. Optional
@@ -896,13 +902,63 @@ func (b *Binding) convertStringParam(arg string, pindex int) (ret interface{}) {
 //A proxy function will be installed that passes the binding request to the remote side.
 func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 
-	url,err := url.Parse(u)
+	_,err := url.Parse(u)
 	if err != nil {
 		panic(fmt.Errorf("'%s' parameter is not a valid url: %s",u,err))
 	}
 
-	proxy := func (hc *HTTPContext, ses *Session, in ...interface{}) (ret interface{}) {
-		log.Println(hc,ses,in,url)
+	proxy := func (hc *HTTPContext, ses *Session, in []interface{}) (ret interface{}) {
+		url := u
+		cli := http.DefaultClient
+		if hc != nil && hc.Client != nil {
+			cli = hc.Client
+		} else {
+			hc = nil
+		}
+
+		//TODO: Extract to a client package
+
+		//Build request body.
+		//TODO: port javascript implementation
+		by, err := json.Marshal(in)
+		if err != nil {
+			panic(fmt.Errorf("Cannot encode remote request body: %s",err))
+		}
+		log.Println("POSTBODY:",string(by))
+		buf := bytes.NewBuffer(by)
+		req,err := http.NewRequest("POST",url,buf)
+		if err != nil {
+			panic(fmt.Errorf("Cannot create remote request: %s",err))
+		}
+
+		//Build request headers
+		req.Header.Set("Content-Type",DefaultMimeType)
+		if hc != nil {
+			req.Header.Set(DefaultHeaderCRID,hc.CRID())
+			req.Header.Set(DefaultProxyHeader,b.externalUrlFromRequest(hc.Request).String())
+		}
+
+		//Perform remote call
+		resp,err := cli.Do(req)
+		if err != nil {
+			panic(fmt.Errorf("Remote request call failed: %s",err))
+		}
+
+		mt := resp.Header.Get("Content-Type")
+		body,err := ioutil.ReadAll(resp.Body)
+		log.Println(string(body))
+
+		defer resp.Body.Close()
+		switch mt {
+			case DefaultMimeType:
+				err = json.Unmarshal(body,&ret)
+				if err != nil {
+					panic(fmt.Errorf("Remote response could not be parsed: %s",err))
+				}
+			default:
+				//Binary Content
+				panic(fmt.Errorf("Not yet implemented: Binary Proxy. MimeType: %s",mt))
+		}
 		return
 	}
 
@@ -1024,7 +1080,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	//http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 }
 
-// Internally used method to process a call. Input parameters, interface name and method name a read from a JSON encoded
+// Internally used method to process a call. Input parameters, interface name and method name are read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
 func (f *Binding) processCall(out io.Writer,injs Injections,args ...interface{}) (mime string) {
 	var b []byte

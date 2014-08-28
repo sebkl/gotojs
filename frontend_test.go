@@ -388,4 +388,14 @@ func BenchmarkFrontend (b *testing.B) {
 	}
 }
 
+func TestExposeProxy(t *testing.T) {
+	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/gotojs/Bindings",":asdasd","Remote","Bindings")
+	log.Println(b[0].injections)
+	//args := make([]interface{},1)
+	//args[0] = "test"
+	ret := b.InvokeI(NewI(&HTTPContext{},&Session{}))
+	t.Logf("%s",ret)
+}
+
+
 

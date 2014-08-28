@@ -31,7 +31,7 @@ go run hello.go
 And query it as follows:
 ```
 curl "http://localhost:8080/gotojs/Sample/Hello?name=Dude"
-{"CRID":"","Data":"Hello Dude!"}
+"Hello Dude!"
 ```
 
 #### Google App Engine Example:

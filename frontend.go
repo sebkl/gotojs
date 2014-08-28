@@ -108,6 +108,9 @@ type cache struct {
 	revision uint64
 }
 
+// RemoteBinder is a function type that will be invoked for a remote binding.
+type RemoteBinder func (*HTTPContext,*Session, ...interface{}) interface{}
+
 // Return interface which allows to return binary content with a specific mime type 
 // non json encoded
 type Binary interface {
@@ -700,7 +703,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 
 				//Check if binary content is expected. IN this case the PUT method is used.
 				meth := "POST"
-				if c := bi.countParameterType(&BinaryContent{}); c > 0 {
+				if bi.receivesBinaryContent() {
 					meth = "PUT"
 				}
 
@@ -887,6 +890,26 @@ func (b *Binding) convertStringParam(arg string, pindex int) (ret interface{}) {
 		panic(err)
 	}
 	return
+}
+
+//ExposeRemoteBinding ExposeRemoteBinding exposes a remote Binding by specifying the corresponding url.
+//A proxy function will be installed that passes the binding request to the remote side.
+func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
+
+	url,err := url.Parse(u)
+	if err != nil {
+		panic(fmt.Errorf("'%s' parameter is not a valid url: %s",u,err))
+	}
+
+	proxy := func (hc *HTTPContext, ses *Session, in ...interface{}) (ret interface{}) {
+		log.Println(hc,ses,in,url)
+		return
+	}
+
+	//TODO: make clean and move to ExportFunction method of BindingContainer
+	pm:=b.newRemoteBinding(proxy,lin,lfn)
+	b.revision++
+	return pm.S()
 }
 
 // ServeHTTP processes http request. The behaviour depends on the path and method of the call ass follows:

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"regexp"
 	"fmt"
+	"strconv"
 )
 
 const (
@@ -43,6 +44,7 @@ type Binding struct {
 	i interface{}
 	filters []Filter
 	backend *Backend
+	signature string
 }
 
 //Bindings is a list of concrete method bindings.
@@ -119,6 +121,7 @@ func (m *Binding) AddInjection(i interface{}) *Binding{
 			m.injections[ii] = it
 		}
 	}
+
 	return m
 }
 
@@ -180,14 +183,19 @@ func (r *Binding) parameterTypeArray(includeInjections bool) []reflect.Type {
 
 // ValidationString generate a string that represents the signature of a method or function. It
 // is used to perform a runtime validation when calling a JS proxy method.
-func (r *Binding) ValidationString() (ret string){
-	a := r.parameterTypeArray(false)
-	for _,v := range a {
-		ret += string(kindMapping[v.Kind()])
+func (r *Binding) ValidationString() string{
+	if r.t != RemoteBinding {
+		r.signature = ""
+		a := r.parameterTypeArray(false)
+		for _,v := range a {
+			r.signature += string(kindMapping[v.Kind()])
+		}
 	}
-	return
+	return r.signature
 }
 
+func (p *Binding) recreateSignature() {
+}
 
 func (r *Binding) receivesBinaryContent() bool {
 	return r.countParameterType(&BinaryContent{}) > 0
@@ -295,8 +303,10 @@ func (b *Backend) newBinding(i interface{},t,x int,in,mn string) (*Binding) {
 }
 
 //NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *Backend) newRemoteBinding(i interface{},in,mn string) (*Binding) {
-	return b.newBinding(i,RemoteBinding,-1,in,mn)
+func (b *Backend) newRemoteBinding(i interface{},sig,in,mn string) (*Binding) {
+	ret := b.newBinding(i,RemoteBinding,-1,in,mn)
+	ret.signature = sig
+	return ret
 }
 
 //NewMethodBinding creates a new method binding with the given interface and method name, whereby
@@ -720,7 +730,43 @@ func (r* Binding) callValuesI(inj Injections, args ...interface{}) (ret []reflec
 		}
 
 		// Assign final value to final call vector.
-		if (at.Kind() != av.Kind()) {
+		// TODO: extract to helper function
+		tk := at.Kind()
+		sk := av.Kind()
+		if (tk != sk) {
+			//log.Printf("Target type does not match source argument type. trying to convert: %s -> %s",sk,tk)
+			switch sk {
+				case reflect.String:
+					skv := av.String()
+					var err error
+					var v interface{}
+					switch tk {
+						case reflect.Float64,reflect.Float32:
+							v,err = strconv.ParseFloat(skv,64)
+						case reflect.Int,reflect.Int8,reflect.Int16,reflect.Int32,reflect.Uint,reflect.Uint32,reflect.Uint8,reflect.Uint16:
+							v,err = strconv.Atoi(skv)
+						case reflect.Int64,reflect.Uint64:
+							v,err = strconv.ParseInt(skv,10,64)
+						default:
+							err = fmt.Errorf("No conversion type found for %s",tk)
+					}
+					if err == nil {
+						av = reflect.ValueOf(v)
+					} else {
+						log.Printf("%s",err)
+					}
+				default:
+					if tk == reflect.String {
+						switch sk {
+							case reflect.Float64,reflect.Float32:
+								av = reflect.ValueOf(fmt.Sprintf("%f",av.Interface()))
+							case reflect.Int,reflect.Int8,reflect.Int16,reflect.Int32,reflect.Uint,reflect.Uint32,reflect.Uint8,reflect.Uint16,reflect.Int64,reflect.Uint64:
+								av = reflect.ValueOf(fmt.Sprintf("%d",av.Interface()))
+							default:
+								av = reflect.ValueOf(fmt.Sprintf("%s",av.Interface()))
+						}
+					}
+			}
 			ret[ai] = av.Convert(at) // Try to convert.
 		} else {
 			ret[ai] = av

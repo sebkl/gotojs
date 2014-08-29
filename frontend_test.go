@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"io/ioutil"
 	"log"
+	"strconv"
 )
 
 const (
@@ -389,18 +390,46 @@ func BenchmarkFrontend (b *testing.B) {
 }
 
 func TestExposeProxyBase(t *testing.T) {
-	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/GetParam",":asdasd","Proxy","GetParam")
+	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/GetParam","","Proxy","GetParam")
 	ret := b.InvokeI(NewI(&HTTPContext{},&Session{}))
 	if rv,ok := ret.(float64); !ok || rv != 1000 {
 		t.Errorf("Simple remote get call failed: %d",ret)
 	}
 
-	b = frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/SetAndGetParam",":asdasd","Proxy","SetAndGetParam")
+	b = frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/SetAndGetParam","i","Proxy","SetAndGetParam")
 	ret = b.InvokeI(NewI(&HTTPContext{},&Session{}),1001)
 	if rv,ok := ret.(float64); !ok || rv != 1001 {
 		t.Errorf("Simple remote get call failed: %d",ret)
 	}
+
+	resp,_ := http.Get("http://localhost:8786/gotojs/Proxy/SetAndGetParam/1000")
+	by,_ := ioutil.ReadAll(resp.Body)
+	if i,err := strconv.Atoi(string(by)); err != nil || i != 1000 {
+		t.Errorf("Simple remote get call failed: %s,%d",err,i)
+	}
+
+	resp,_ = http.Get("http://localhost:8786/gotojs/Proxy/GetParam")
+	by,_ = ioutil.ReadAll(resp.Body)
+	if i,err := strconv.Atoi(string(by)); err != nil || i != 1000 {
+		t.Errorf("Simple remote get call failed: %s,%d",err,i)
+	}
 }
 
+func TestProxySession(t *testing.T) {
+	ts := "TESTSTRING"
+	frontend.ExposeFunction(func(s *Session, val string) { log.Printf("### set %s",val); s.Set("test",val)},"SessionTest","Set")
+	frontend.ExposeFunction(func(s *Session) string{ ret := s.Get("test"); log.Printf("###get %s",ret); return ret},"SessionTest","Get")
+	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/SessionTest/Set","s","Proxy","Set")
+	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/SessionTest/Get","","Proxy","Get")
+	resp,_ :=http.Get("http://localhost:8786/gotojs/Proxy/Set/" + ts)
+	c := resp.Cookies()[0]
+	log.Printf("%s",c)
 
-
+	req,_ := http.NewRequest("GET","http://localhost:8786/gotojs/Proxy/Get",nil)
+	req.AddCookie(c)
+	resp,_ = http.DefaultClient.Do(req)
+	b,_ := ioutil.ReadAll(resp.Body)
+	if string(b) != "\""+ts+"\"" { // is json encoded
+		t.Errorf("Simple remote get call failed: '%s'/'%s'",string(b),ts)
+	}
+}

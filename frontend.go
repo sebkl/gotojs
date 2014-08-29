@@ -121,31 +121,51 @@ type Binary interface {
 
 //BinaryContent is an internal implementation to wrap a PUT/POST call as a Binary interface
 type BinaryContent struct { *http.Request }
+type BinaryResponse struct { *http.Response }
 
 func (b *BinaryContent) MimeType() string {
 	return b.Request.Header.Get(CTHeader)
+}
+
+func (b *BinaryResponse) MimeType() string {
+	return b.Response.Header.Get(CTHeader)
 }
 
 func (b *BinaryContent) Read(p []byte) (n int, err error) {
 	return b.Request.Body.Read(p)
 }
 
+func (b *BinaryResponse) Read(p []byte) (n int, err error) {
+	return b.Response.Body.Read(p)
+}
+
 func (b *BinaryContent) Close() error {
 	return b.Request.Body.Close()
 }
 
-func (b *BinaryContent) Catch() (ret []byte, err error) {
-	ret, err = ioutil.ReadAll(b.Request.Body)
+func (b *BinaryResponse) Close() error {
+	return b.Response.Body.Close()
+}
+
+func (b *BinaryResponse) Catch() (ret []byte, err error) {
+	ret, err = ioutil.ReadAll(b.Response.Body)
 	if err != nil {
 		return
 	}
-	err = b.Request.Body.Close()
+	err = b.Response.Body.Close()
 	return
 }
 
 func NewBinaryContent(req *http.Request) (ret *BinaryContent) {
 	if req.Body != nil {
 		ret = &BinaryContent{req}
+	}
+	return
+}
+
+func NewBinaryResponse(res *http.Response) (ret *BinaryResponse) {
+	if res.Body != nil {
+		ret = &BinaryResponse{res}
 	}
 	return
 }
@@ -196,7 +216,7 @@ type Frontend struct {
 }
 
 //Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
-var encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+var encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+")
 
 //Parameter type allows to define mutliple configuration parameters.
 type Parameters map[int]string
@@ -222,6 +242,7 @@ func NewSession() *Session {
 		Properties: make(Properties),
 		dirty: false}
 }
+
 
 // SessionFromCookie reads a session object from the cookie.
 func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
@@ -902,13 +923,13 @@ func (b *Binding) convertStringParam(arg string, pindex int) (ret interface{}) {
 //A proxy function will be installed that passes the binding request to the remote side.
 func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 
-	_,err := url.Parse(u)
+	url,err := url.Parse(u)
 	if err != nil {
 		panic(fmt.Errorf("'%s' parameter is not a valid url: %s",u,err))
 	}
 
 	proxy := func (hc *HTTPContext, ses *Session, in []interface{}) (ret interface{}) {
-		url := u
+		url := url
 		cli := http.DefaultClient
 		if hc != nil && hc.Client != nil {
 			cli = hc.Client
@@ -918,15 +939,16 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 
 		//TODO: Extract to a client package
 
+
 		//Build request body.
 		//TODO: port javascript implementation
 		by, err := json.Marshal(in)
 		if err != nil {
 			panic(fmt.Errorf("Cannot encode remote request body: %s",err))
 		}
-		log.Println("POSTBODY:",string(by))
+
 		buf := bytes.NewBuffer(by)
-		req,err := http.NewRequest("POST",url,buf)
+		req,err := http.NewRequest("POST",url.String(),buf)
 		if err != nil {
 			panic(fmt.Errorf("Cannot create remote request: %s",err))
 		}
@@ -934,9 +956,22 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 		//Build request headers
 		req.Header.Set("Content-Type",DefaultMimeType)
 		if hc != nil {
+			//TODO: copy more/all header like User-Agent etc ....
 			req.Header.Set(DefaultHeaderCRID,hc.CRID())
 			req.Header.Set(DefaultProxyHeader,b.externalUrlFromRequest(hc.Request).String())
 		}
+
+		//extract cookies
+		if ses != nil {
+			for k,v := range ses.Properties {
+				//TODO: encapsulate more information like expires etc.
+				//c := &http.Cookie{Name: k, Value: v, Path: url.Path, Domain: url.Host}
+				c := &http.Cookie{Name: k, Value: v, Path: "/", Domain: url.Host}
+				//log.Printf("Adding Cookie: %s",c)
+				req.AddCookie(c)
+			}
+		}
+
 
 		//Perform remote call
 		resp,err := cli.Do(req)
@@ -945,25 +980,33 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 		}
 
 		mt := resp.Header.Get("Content-Type")
-		body,err := ioutil.ReadAll(resp.Body)
-		log.Println(string(body))
 
-		defer resp.Body.Close()
+		//fetch cookies
+		if ses != nil {
+			cookies := resp.Cookies()
+			for _,c := range cookies {
+				//TODO: encapsulate more information
+				//log.Printf("Found Cookie: %s=%s",c.Name,c.Value)
+				ses.Set(c.Name,c.Value)
+			}
+		}
+
 		switch mt {
 			case DefaultMimeType:
+				body,err := ioutil.ReadAll(resp.Body)
+				defer resp.Body.Close()
 				err = json.Unmarshal(body,&ret)
 				if err != nil {
 					panic(fmt.Errorf("Remote response could not be parsed: %s",err))
 				}
 			default:
-				//Binary Content
-				panic(fmt.Errorf("Not yet implemented: Binary Proxy. MimeType: %s",mt))
+				ret = NewBinaryResponse(resp)
 		}
 		return
 	}
 
 	//TODO: make clean and move to ExportFunction method of BindingContainer
-	pm:=b.newRemoteBinding(proxy,lin,lfn)
+	pm:=b.newRemoteBinding(proxy,signature,lin,lfn)
 	b.revision++
 	return pm.S()
 }
@@ -1053,8 +1096,9 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 					args = append(args,i...)
 				}
 
-				if len(b.ValidationString()) != len(args) {
-					httpContext.Errorf(http.StatusBadRequest,"Invalid parameter count: %d/%d %s",len(args),len(b.ValidationString()),args)
+				vs := b.ValidationString()
+				if len(vs) != len(args) {
+					httpContext.Errorf(http.StatusBadRequest,"Invalid parameter count: %d/%d (%s)%s",len(args),len(vs),vs,args)
 					return
 				}
 

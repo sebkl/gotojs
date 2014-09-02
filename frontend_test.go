@@ -44,6 +44,20 @@ func existsNodeJS() bool {
 	return err == nil
 }
 
+func dumpResponse(t *testing.T,resp *http.Response, err error) {
+	if resp != nil {
+		for hn,va := range resp.Header {
+			for _,v := range va {
+				t.Logf("%s: %s",hn,v)
+			}
+		}
+		by,err := ioutil.ReadAll(resp.Body)
+		t.Logf("err: %s, body: %s",err,string(by))
+	} else {
+		t.Logf("NO RESPONSE: %s",err)
+	}
+}
+
 func executeJS(t *testing.T,fronted *Frontend,engine string, postCmd ...string) (string,error){
 	t.Logf("Executing nodejs engine \"%s\"...",nodeCmd)
 	cmd := exec.Command(nodeCmd)
@@ -108,7 +122,7 @@ func TestValidationString(t *testing.T) {
 
 func TestParameterTypeCount(t *testing.T) {
 	frontend.ExposeFunction( func (bc *BinaryContent) { },"a","b")
-	if count := frontend.Binding("a","b").countParameterType(&BinaryContent{}); count != 1 {
+	if count := countParameterType(frontend.Binding("a","b"),&BinaryContent{}); count != 1 {
 		t.Errorf("Incorrect ParameterTypeCount: %d/%d",count,1)
 	}
 }
@@ -148,18 +162,21 @@ func TestRemoveInterface(t *testing.T) {
 }
 
 func TestCallParameter(t *testing.T) {
-	res,_ := http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam/101")
+	res,err := http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam/101")
 	if res.StatusCode != http.StatusOK {
+		dumpResponse(t,res,err)
 		t.Errorf("Parameter as path failed.")
 	}
 
-	res,_ = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam?p=101")
+	res,err = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam?p=101")
 	if res.StatusCode != http.StatusOK {
+		dumpResponse(t,res,err)
 		t.Errorf("Parameter as query string failed.")
 	}
 
-	res,_ = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam")
+	res,err = http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParam")
 	if res.StatusCode == http.StatusOK {
+		dumpResponse(t,res,err)
 		t.Errorf("Negative Test call parameter failed.")
 	}
 }
@@ -254,7 +271,7 @@ func TestAutoInjectionFilter(t *testing.T) {
 	// Make sure to clear all filters after the test is completed.
 	defer frontend.Bindings().ClearFilter()
 
-	frontend.Bindings().If(AutoInjectF(func(inj Injections,c *HTTPContext, b *Binding) bool {
+	frontend.Bindings().If(AutoInjectF(func(inj Injections,c *HTTPContext, b Binding) bool {
 		log.Println(len(inj),b.Name())
 		return len(inj) > 0 && b.Name() == "TestService.SetParam"
 	})).If(AutoInjectF(func(c *HTTPContext) bool {

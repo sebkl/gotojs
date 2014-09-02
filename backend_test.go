@@ -17,6 +17,7 @@ type TestAttributeService struct {
 	Param int
 }
 
+
 var MyTestService = TestService{param1: 0}
 var MyTestService2 = TestService2{param2: 0}
 var backend = NewBackend()
@@ -240,9 +241,9 @@ func TestSimpleFilterChain(t *testing.T) {
 	// Make sure to clear all filters after the test is completed.
 	defer backend.Bindings().ClearFilter()
 
-	_ = backend.Bindings().If(func(b *Binding,inj Injections) bool {
+	_ = backend.Bindings().If(func(b Binding,inj Injections) bool {
 		return b.Name() == "TestService.GetParam"
-	}).If(func(b* Binding, inj Injections) bool {
+	}).If(func(b Binding, inj Injections) bool {
 		works = true
 		return works
 	})
@@ -361,9 +362,9 @@ func TestNegativeFilterChain(t *testing.T) {
 	b := backend.Binding("TestService","SetParam")
 	defer b.ClearFilter() // Make sure to remove filter after test.
 
-	b.If(func(b *Binding,inj Injections) bool {
+	b.If(func(b Binding,inj Injections) bool {
 		return true // This one allows
-	}).If(func(b *Binding,inj Injections) bool {
+	}).If(func(b Binding,inj Injections) bool {
 		return false // this one forbids
 	})
 

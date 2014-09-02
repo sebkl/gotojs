@@ -110,7 +110,7 @@ type cache struct {
 }
 
 // RemoteBinder is a function type that will be invoked for a remote binding.
-type RemoteBinder func (*HTTPContext,*Session, ...interface{}) interface{}
+type RemoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
 
 // Return interface which allows to return binary content with a specific mime type 
 // non json encoded
@@ -730,7 +730,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 
 				//Check if binary content is expected. IN this case the PUT method is used.
 				meth := "POST"
-				if bi.receivesBinaryContent() {
+				if receivesBinaryContent(bi) {
 					meth = "PUT"
 				}
 
@@ -900,25 +900,6 @@ func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 	return
 }
 
-// convertParam tries to convert the given string parameter to the real ones needed
-// by the call invocation. The validation string is used to identify the target type.
-func (b *Binding) convertStringParam(arg string, pindex int) (ret interface{}) {
-	vs := b.ValidationString()
-	var err error
-	switch vs[pindex] { // Only simple types supported. TODO: Offer Json Parsing.
-		case 'i':
-			ret,err = strconv.Atoi(arg)
-		case 'f':
-			ret,err = strconv.ParseFloat(arg,64)
-		default:
-			ret = arg
-	}
-	if err != nil {
-		panic(err)
-	}
-	return
-}
-
 //ExposeRemoteBinding ExposeRemoteBinding exposes a remote Binding by specifying the corresponding url.
 //A proxy function will be installed that passes the binding request to the remote side.
 func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
@@ -938,8 +919,6 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 		}
 
 		//TODO: Extract to a client package
-
-
 		//Build request body.
 		//TODO: port javascript implementation
 		by, err := json.Marshal(in)
@@ -1071,7 +1050,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 				//Take paremeters from path
 				for _,v := range elems[2:] {
-					args = append(args,b.convertStringParam(v,ac))
+					args = append(args,v)
 					ac++
 				}
 
@@ -1079,7 +1058,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
 					for _,v := range vals {
 						for _,vv := range v {
-							args = append(args,b.convertStringParam(vv,ac))
+							args = append(args,vv)
 							ac++
 						}
 					}
@@ -1121,15 +1100,14 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 		httpContext.Errorf(http.StatusNotFound,"Not within gotojs context.")
 		return;
 	}
-	//http.Error(w,"Unsupported Method",http.StatusMethodNotAllowed)
 }
 
 // Internally used method to process a call. Input parameters, interface name and method name are read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
-func (f *Binding) processCall(out io.Writer,injs Injections,args ...interface{}) (mime string) {
+func (f Binding) processCall(out io.Writer,injs Injections,args ...interface{}) (mime string) {
 	var b []byte
 	var err error
-	defer func() {Log("CALL","-",f.interfaceName + "." + f.elemName,strconv.Itoa(len(b))) }()
+	defer func() {Log("CALL","-",f.Name(),strconv.Itoa(len(b))) }()
 	ret := f.InvokeI(injs,args...)
 
 	if bin,ok := ret.(Binary); ok {

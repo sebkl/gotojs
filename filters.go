@@ -20,7 +20,7 @@ func AutoInjectF(f interface{}) Filter {
 		panic(fmt.Errorf("Return parameter is not of type bool."))
 	}
 
-	return func (b *Binding,injo Injections) bool {
+	return func (b Binding,injo Injections) bool {
 		ac := ft.NumIn()
 		av := make([]reflect.Value,ac)
 		inj := MergeInjections(injo,NewI(b,injo))

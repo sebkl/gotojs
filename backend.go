@@ -21,6 +21,8 @@ const (
 // filter nor the real method call will be invoked.
 type Filter func (Binding,Injections) bool
 
+// RemoteBinder is a function type that will be invoked for a remote binding.
+type RemoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
 
 // bindingInterface declare binding specific methods.
 type bindingInterface interface {
@@ -61,7 +63,7 @@ type methodBinding struct {
 type remoteBinding struct {
 	binding
 	remoteSignature string
-	i interface{}
+	i RemoteBinder
 }
 
 // Binding is a concrete method binding. It maps a interface and method name to a go object's method.
@@ -154,7 +156,6 @@ func (b Binding) AddInjection(i interface{}) Binding{
 func (b *binding) base() *binding{
 	return b
 }
-
 
 //InterfaceName returns the name of the interface this binding is assigned to.
 func (b *binding) InterfaceName() string{
@@ -339,7 +340,7 @@ func (b *Backend) newBinding(in,mn string) (*binding) {
 }
 
 //NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *Backend) newRemoteBinding(i interface{},sig,in,mn string) (ret Binding) {
+func (b *Backend) newRemoteBinding(i RemoteBinder,sig,in,mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &remoteBinding{
 		binding: *b.newBinding(in,mn),
 		remoteSignature: sig,
@@ -902,17 +903,9 @@ func (b *functionBinding) invokeI(inj Injections, args []interface{}) interface{
 //invokeI is an internally used method to invoke a proxy type binding
 // using the given unjections opjects and binding parameters
 func (b *remoteBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	val := reflect.ValueOf(b.i)
-	// Sanity check whether binding object is actually of kind function
-	//if _,ok := b.i.(func (c *HTTPContext, s*Session,i[]interface{}) interface{}); !ok {
-	//if _,ok := b.i.(RemoteBinder); !ok {
-	if val.Kind() != reflect.Func {
-		log.Printf("%s",b.i)
-		panic(fmt.Errorf("FunctionBinding for \"%s.%s\"  does not bind a RemoteBinder.",b.interfaceName,b.elemName))
-	}
-
 	meth := reflect.ValueOf(b.i)
 
+	//wrap parameters in an []interface{} array
 	aa := make([]interface{},1)
 	aa[0] = args
 

@@ -1,5 +1,5 @@
 // Package gotojs offers a library for exposing go-interfaces as Javascript proxy objects.
-// Therefore package gotojs assembles a JS engine which creates proxy objects as JS code 
+// Therefore gotojs assembles a JS engine which creates proxy objects as JS code 
 // and forwards the calls to them via JSON encoded HTTP Ajax requests.
 // This allows web developers to easily write HTML5 based application using jQuery,YUI and other 
 // simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but
@@ -109,9 +109,6 @@ type cache struct {
 	revision uint64
 }
 
-// RemoteBinder is a function type that will be invoked for a remote binding.
-type RemoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
-
 // Return interface which allows to return binary content with a specific mime type 
 // non json encoded
 type Binary interface {
@@ -196,7 +193,8 @@ func (c *HTTPContext) Errorf(status int ,f string, args ...interface{})  {
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
 // HTTP facade of "gotojs".
 type Frontend struct {
-	Backend //inherit from BindingContainer and extend
+	Backend //embedd BindingContainer and extend
+	*http.ServeMux //embedd http muxer
 	templateSource Templates
 	template map[string]*template.Template
 	namespace string
@@ -204,7 +202,6 @@ type Frontend struct {
 	extUrl *url.URL
 	templateBasePath string
 	flags int
-	mux *http.ServeMux
 	httpd *http.Server
 	addr string
 	cache map[string]*cache
@@ -242,7 +239,6 @@ func NewSession() *Session {
 		Properties: make(Properties),
 		dirty: false}
 }
-
 
 // SessionFromCookie reads a session object from the cookie.
 func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
@@ -369,6 +365,7 @@ func (c *HTTPContext) CRID() string {
 func NewFrontend(args ...Parameters) (*Frontend){
 	f := Frontend{
 		Backend: NewBackend(),
+		ServeMux: http.NewServeMux(),
 		flags: F_DEFAULT,
 		extUrl: nil,
 		addr: DefaultListenAddress,
@@ -433,7 +430,6 @@ func NewFrontend(args ...Parameters) (*Frontend){
 	var bc *BinaryContent = nil
 	f.SetupGlobalInjection(bc)
 
-	f.mux = http.NewServeMux();
 	return &f
 }
 
@@ -654,6 +650,7 @@ func Minify(c *http.Client,source []byte) []byte {
 
 	return source
 }
+
 // build is an internally used function that compiles the javascript based 
 //proxy-object (JS engine) including external libraries. This consists of 4 areas:
 //
@@ -785,7 +782,7 @@ func (f *Frontend) EnableFileServer(args ...string) {
 	if _,err := os.Stat(f.publicDir); err == nil {
 		log.Printf("FileServer enabled at '/%s'",f.publicContext)
 		f.fileServer = http.StripPrefix("/"+f.publicContext+"/",http.FileServer(http.Dir(f.publicDir)))
-		f.mux.Handle("/" + f.publicContext + "/",f.fileServer)
+		f.Handle("/" + f.publicContext + "/",f.fileServer)
 	} else {
 		log.Printf("FileServer is enabled, but root dir \"%s\" does not exist or is not accessible.",f.publicDir)
 	}
@@ -828,12 +825,14 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 
 	// Setup gotojs engine handler.
 	log.Printf("GotojsEngine enabled at '%s'",f.context)
-	f.mux.Handle(f.context + "/",f)
+	f.HandleFunc(f.context + "/",func (res http.ResponseWriter, req *http.Request) {
+		f.serveHTTP(res,req)
+	})
 
 	if f.flags & F_ENABLE_ACCESSLOG  > 0{
-		handler = NewLogWraper(f.mux)
+		handler = NewLogWraper(f)
 	} else {
-		handler = f.mux
+		handler = f
 	}
 
 	f.httpd = &http.Server{
@@ -857,21 +856,16 @@ func (f *Frontend) Start(args ...string) error {
 	return f.httpd.ListenAndServe()
 }
 
-//Mux returns the internally user request multiplexer. It allows to assign additional http handlers
-func (f* Frontend) Mux() *http.ServeMux {
-	return f.mux
-}
-
 // Redirect is a convenience method which configures a redirect handler from the patter to adestination url.
 func (f* Frontend) Redirect(pattern,url string) {
-	f.mux.Handle(pattern,http.RedirectHandler(url,http.StatusFound))
+	f.Handle(pattern,http.RedirectHandler(url,http.StatusFound))
 }
 
 //HandleStatic is a convenience method which defines a static content handle that is assigned to the given path pattern.
 // It allows to declare statically served content like HTML or JS snippets.
 // The Content-Type can be optionally specified.
 func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
-	f.mux.HandleFunc(pattern, func(w http.ResponseWriter,r *http.Request) {
+	f.HandleFunc(pattern, func(w http.ResponseWriter,r *http.Request) {
 		if len(mime) > 0 {
 			w.Header().Set(CTHeader, mime[0])
 		}
@@ -951,7 +945,6 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 			}
 		}
 
-
 		//Perform remote call
 		resp,err := cli.Do(req)
 		if err != nil {
@@ -1001,7 +994,7 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 //	"PUT":  Same as get but allows binary content in the body.
 // If the handler of gotojs needs to be taken directly, the method Mux() should be used instead.
 // TODO: fix this make frontend being the muxer
-func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
+func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)
 	crid := DefaultCRID
@@ -1035,7 +1028,7 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	defer session.Flush(w,f.key) //Update session on client side if necessary.
 
 	path := r.URL.Path
-	if strings.Contains(path,f.context) {//TODO: make condition more accurate.
+	if strings.HasPrefix(path,f.context) {
 		sub:= strings.SplitAfterN(path,f.context,2)
 		elems := strings.Split(sub[1],"/")
 
@@ -1044,23 +1037,13 @@ func(f *Frontend) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 
 			//Check if binding exists
 			if b := f.Binding(elems[0],elems[1]); b!=nil {
-				//TODO: extract function to retrieve parameters from call.
-				args := make([]interface{},0)
-				ac := 0
-
 				//Take paremeters from path
-				for _,v := range elems[2:] {
-					args = append(args,v)
-					ac++
-				}
+				args := sToIArray(elems[2:]...)
 
 				//Check if the query string contains parameters
 				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
 					for _,v := range vals {
-						for _,vv := range v {
-							args = append(args,vv)
-							ac++
-						}
+						args = append(args,sToIArray(v...)...)
 					}
 				}
 

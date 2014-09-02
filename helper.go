@@ -95,4 +95,12 @@ func Decrypt(in,  key []byte) []byte {
 	return obuf.Bytes()
 }
 
+//toArray is an var args to array converter.
+func sToIArray(args ...string) (ret []interface{}) {
+	ret = make([]interface{},len(args))
+	for i,v := range args {
+		ret[i] = v
+	}
+	return
+}
 

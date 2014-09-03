@@ -34,6 +34,7 @@ import (
 	"io/ioutil"
 	"runtime/debug"
 	"github.com/dchest/jsmin"
+	. "github.com/sebkl/gotojs/client"
 	compilerapi "github.com/sebkl/go-closure-compilerapi"
 )
 
@@ -118,51 +119,27 @@ type Binary interface {
 
 //BinaryContent is an internal implementation to wrap a PUT/POST call as a Binary interface
 type BinaryContent struct { *http.Request }
-type BinaryResponse struct { *http.Response }
 
 func (b *BinaryContent) MimeType() string {
 	return b.Request.Header.Get(CTHeader)
 }
 
-func (b *BinaryResponse) MimeType() string {
-	return b.Response.Header.Get(CTHeader)
-}
+
 
 func (b *BinaryContent) Read(p []byte) (n int, err error) {
 	return b.Request.Body.Read(p)
 }
 
-func (b *BinaryResponse) Read(p []byte) (n int, err error) {
-	return b.Response.Body.Read(p)
-}
 
 func (b *BinaryContent) Close() error {
 	return b.Request.Body.Close()
 }
 
-func (b *BinaryResponse) Close() error {
-	return b.Response.Body.Close()
-}
 
-func (b *BinaryResponse) Catch() (ret []byte, err error) {
-	ret, err = ioutil.ReadAll(b.Response.Body)
-	if err != nil {
-		return
-	}
-	err = b.Response.Body.Close()
-	return
-}
 
 func NewBinaryContent(req *http.Request) (ret *BinaryContent) {
 	if req.Body != nil {
 		ret = &BinaryContent{req}
-	}
-	return
-}
-
-func NewBinaryResponse(res *http.Response) (ret *BinaryResponse) {
-	if res.Body != nil {
-		ret = &BinaryResponse{res}
 	}
 	return
 }
@@ -315,6 +292,30 @@ func (s *Session) Cookie(name,path string, key []byte) *http.Cookie {
 	c.Value = encoding.EncodeToString(Encrypt(fbuf.Bytes(),key))
 	c.Path = path
 	return c
+}
+
+//SetCookies wraps the cookies into this session. This can effectively be used
+// as cookie proxy.
+func (s *Session) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	for _,c := range cookies {
+		//TODO: encapsulate more information
+		//log.Printf("Found Cookie: %s=%s",c.Name,c.Value)
+		s.Set(c.Name,c.Value)
+	}
+}
+
+//Cookies returns alls cookies that belong to this url. This can effectively be used 
+// as cookie proxy.
+func (s *Session) Cookies(u *url.URL) []*http.Cookie {
+	ret := make([]*http.Cookie,0)
+	for k,v := range s.Properties {
+		//TODO: encapsulate more information like expires etc.
+		//c := &http.Cookie{Name: k, Value: v, Path: url.Path, Domain: url.Host}
+		c := &http.Cookie{Name: k, Value: v, Path: "/", Domain: u.Host}
+		//log.Printf("Adding Cookie: %s",c)
+		ret = append(ret,c)
+	}
+	return ret
 }
 
 // HTTPContext is a context object that will be injected by the frontend whenever an exposed method or function parameter
@@ -896,85 +897,23 @@ func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 
 //ExposeRemoteBinding ExposeRemoteBinding exposes a remote Binding by specifying the corresponding url.
 //A proxy function will be installed that passes the binding request to the remote side.
-func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
+func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindings {
 
 	url,err := url.Parse(u)
 	if err != nil {
 		panic(fmt.Errorf("'%s' parameter is not a valid url: %s",u,err))
 	}
 
-	proxy := func (hc *HTTPContext, ses *Session, in []interface{}) (ret interface{}) {
-		url := url
-		cli := http.DefaultClient
-		if hc != nil && hc.Client != nil {
-			cli = hc.Client
-		} else {
-			hc = nil
-		}
+	proxy := func (hc *HTTPContext, ses *Session, in []interface{}) interface{} {
+		cli := NewProxyClient(hc.Client,ses,url,b.externalUrlFromRequest(hc.Request).String(),hc.CRID())
+		//take incoming header.
+		cli.CopyHeader(hc.Request)
 
-		//TODO: Extract to a client package
-		//Build request body.
-		//TODO: port javascript implementation
-		by, err := json.Marshal(in)
+		ret,err := cli.Invoke(rin,rmn,in...)
 		if err != nil {
-			panic(fmt.Errorf("Cannot encode remote request body: %s",err))
+			panic(err)
 		}
-
-		buf := bytes.NewBuffer(by)
-		req,err := http.NewRequest("POST",url.String(),buf)
-		if err != nil {
-			panic(fmt.Errorf("Cannot create remote request: %s",err))
-		}
-
-		//Build request headers
-		req.Header.Set("Content-Type",DefaultMimeType)
-		if hc != nil {
-			//TODO: copy more/all header like User-Agent etc ....
-			req.Header.Set(DefaultHeaderCRID,hc.CRID())
-			req.Header.Set(DefaultProxyHeader,b.externalUrlFromRequest(hc.Request).String())
-		}
-
-		//extract cookies
-		if ses != nil {
-			for k,v := range ses.Properties {
-				//TODO: encapsulate more information like expires etc.
-				//c := &http.Cookie{Name: k, Value: v, Path: url.Path, Domain: url.Host}
-				c := &http.Cookie{Name: k, Value: v, Path: "/", Domain: url.Host}
-				//log.Printf("Adding Cookie: %s",c)
-				req.AddCookie(c)
-			}
-		}
-
-		//Perform remote call
-		resp,err := cli.Do(req)
-		if err != nil {
-			panic(fmt.Errorf("Remote request call failed: %s",err))
-		}
-
-		mt := resp.Header.Get("Content-Type")
-
-		//fetch cookies
-		if ses != nil {
-			cookies := resp.Cookies()
-			for _,c := range cookies {
-				//TODO: encapsulate more information
-				//log.Printf("Found Cookie: %s=%s",c.Name,c.Value)
-				ses.Set(c.Name,c.Value)
-			}
-		}
-
-		switch mt {
-			case DefaultMimeType:
-				body,err := ioutil.ReadAll(resp.Body)
-				defer resp.Body.Close()
-				err = json.Unmarshal(body,&ret)
-				if err != nil {
-					panic(fmt.Errorf("Remote response could not be parsed: %s",err))
-				}
-			default:
-				ret = NewBinaryResponse(resp)
-		}
-		return
+		return ret
 	}
 
 	//TODO: make clean and move to ExportFunction method of BindingContainer
@@ -983,7 +922,7 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 	return pm.S()
 }
 
-// ServeHTTP processes http request. The behaviour depends on the path and method of the call ass follows:
+// serveHTTP processes http request. The behaviour depends on the path and method of the call ass follows:
 //	"POST": regular binding call. Interface and method name as well as parameter 
 //		are expected in the body of the POST call as a JSON object.
 //	"GET":  If the call points to a binding ("/<interface>/<method>"), the binding will be
@@ -993,7 +932,6 @@ func (b *Frontend) ExposeRemoteBinding(u,signature,lin,lfn string) Bindings {
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
 //	"PUT":  Same as get but allows binary content in the body.
 // If the handler of gotojs needs to be taken directly, the method Mux() should be used instead.
-// TODO: fix this make frontend being the muxer
 func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)

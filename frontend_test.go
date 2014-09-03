@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"strconv"
+	. "github.com/sebkl/gotojs/client"
 )
 
 const (
@@ -56,6 +57,17 @@ func dumpResponse(t *testing.T,resp *http.Response, err error) {
 	} else {
 		t.Logf("NO RESPONSE: %s",err)
 	}
+}
+
+func fakeContext() (ret *HTTPContext) {
+	ret = &HTTPContext{}
+	req,err := http.NewRequest("GET","http://localhost:8786/gotojs/t1/t2",nil)
+	ret.Request = req
+	ret.Client = http.DefaultClient
+	if err != nil {
+		panic(err)
+	}
+	return ret
 }
 
 func executeJS(t *testing.T,fronted *Frontend,engine string, postCmd ...string) (string,error){
@@ -407,14 +419,23 @@ func BenchmarkFrontend (b *testing.B) {
 }
 
 func TestExposeProxyBase(t *testing.T) {
-	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/GetParam","","Proxy","GetParam")
-	ret := b.InvokeI(NewI(&HTTPContext{},&Session{}))
+	hc := fakeContext()
+	s := NewSession()
+	inj := NewI(hc,s)
+
+
+	b := frontend.ExposeRemoteBinding("http://localhost:8786/gotojs","TestService","GetParam","","Proxy","GetParam")
+	b.AddInjection(hc)
+	b.AddInjection(s)
+	ret := b.InvokeI(NewI())
 	if rv,ok := ret.(float64); !ok || rv != 1000 {
 		t.Errorf("Simple remote get call failed: %d",ret)
 	}
 
-	b = frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/TestService/SetAndGetParam","i","Proxy","SetAndGetParam")
-	ret = b.InvokeI(NewI(&HTTPContext{},&Session{}),1001)
+	b = frontend.ExposeRemoteBinding("http://localhost:8786/gotojs","TestService","SetAndGetParam","i","Proxy","SetAndGetParam")
+	b.AddInjection(hc)
+	b.AddInjection(s)
+	ret = b.InvokeI(inj,1001)
 	if rv,ok := ret.(float64); !ok || rv != 1001 {
 		t.Errorf("Simple remote get call failed: %d",ret)
 	}
@@ -436,8 +457,8 @@ func TestProxySession(t *testing.T) {
 	ts := "TESTSTRING"
 	frontend.ExposeFunction(func(s *Session, val string) { log.Printf("### set %s",val); s.Set("test",val)},"SessionTest","Set")
 	frontend.ExposeFunction(func(s *Session) string{ ret := s.Get("test"); log.Printf("###get %s",ret); return ret},"SessionTest","Get")
-	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/SessionTest/Set","s","Proxy","Set")
-	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs/SessionTest/Get","","Proxy","Get")
+	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs","SessionTest","Set","s","Proxy","Set")
+	frontend.ExposeRemoteBinding("http://localhost:8786/gotojs","SessionTest","Get","","Proxy","Get")
 	resp,_ :=http.Get("http://localhost:8786/gotojs/Proxy/Set/" + ts)
 	c := resp.Cookies()[0]
 	log.Printf("%s",c)
@@ -448,5 +469,42 @@ func TestProxySession(t *testing.T) {
 	b,_ := ioutil.ReadAll(resp.Body)
 	if string(b) != "\""+ts+"\"" { // is json encoded
 		t.Errorf("Simple remote get call failed: '%s'/'%s'",string(b),ts)
+	}
+}
+
+func TestProxyHeader(t *testing.T) {
+	frontend.ExposeFunction(func(s *HTTPContext, hn string) string { ret:= s.Request.Header.Get(hn); log.Printf("%s: %s",hn,ret); return ret},"Echo","Header")
+	bu := "http://localhost:8786/gotojs"
+	frontend.ExposeRemoteBinding(bu,"Echo","Header","s","Proxy","Header")
+	resp,_ :=http.Get("http://localhost:8786/gotojs/Proxy/Header/"+ DefaultProxyHeader)
+	b,_ := ioutil.ReadAll(resp.Body)
+	if string(b) != "\"" + bu + "\"" { // is json encoded
+		t.Errorf("Proxy header not set: '%s'/'%s'",string(b),bu)
+	}
+}
+
+func TestVarProxyHeader(t *testing.T) {
+	hn := "x-proxy-test"
+	hv := "1234"
+
+	req,_ := http.NewRequest("GET","http://localhost:8786/gotojs/Proxy/Header/"+ hn,nil)
+	req.Header.Set(hn,hv)
+	resp,_ := http.DefaultClient.Do(req)
+	b,_ := ioutil.ReadAll(resp.Body)
+	if string(b) != "\"" + hv + "\"" { // is json encoded
+		t.Errorf("Proxy header not set: '%s'/'%s'",string(b),hv)
+	}
+}
+
+func TestClient(t *testing.T) {
+	c := NewClient("http://localhost:8786/gotojs")
+	p,err := c.Invoke("TestService","GetParam")
+
+	if err!= nil {
+		t.Errorf("Client call failed: %s",err)
+	}
+
+	if pi,ok := p.(float64); !(ok || pi != 1000)  {
+		t.Errorf("Client call failed: %d/%d",int(pi),1000)
 	}
 }

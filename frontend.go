@@ -102,6 +102,7 @@ const (
 	tokenHttpMethod = "ME"
 	tokenHeaderCRID = "IH"
 	tokenContentType = "CT"
+	tokenCRIDLength = "CL"
 )
 
 type cache struct {
@@ -705,6 +706,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 			tokenValidateArguments: vav,
 			tokenHeaderCRID: DefaultHeaderCRID,
 			tokenContentType: DefaultMimeType,
+			tokenCRIDLength: fmt.Sprintf("%d",CRIDLength),
 			tokenBaseContext: baseUrl }
 
 		//TODO: check which params are actually needed here.
@@ -723,7 +725,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 			// (4) Method objects
 			methods := b.BindingContainer.BindingNames(in)
 			for _,m := range methods {
-				bi := b.Binding(in,m)
+				bi,_ := b.Binding(in,m)
 				vs:= bi.ValidationString()
 
 				//Check if binary content is expected. IN this case the PUT method is used.
@@ -942,6 +944,7 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 		w.Header().Set(DefaultHeaderCRID,crid)
 		if re:=recover();re!=nil {
 			mes := fmt.Sprintf("/*\n\n%s\n\n*/",re)
+			w.Header().Set(DefaultHeaderError,mes) //TODO: maybe som encoding here.
 			if httpContext != nil {
 				http.Error(w,mes,httpContext.ErrorStatus)
 			} else {
@@ -974,14 +977,14 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 			elems = elems[1:]
 
 			//Check if binding exists
-			if b := f.Binding(elems[0],elems[1]); b!=nil {
+			if b,found := f.Binding(elems[0],elems[1]); found {
 				//Take paremeters from path
-				args := sToIArray(elems[2:]...)
+				args := SAToIA(elems[2:]...)
 
 				//Check if the query string contains parameters
 				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
 					for _,v := range vals {
-						args = append(args,sToIArray(v...)...)
+						args = append(args,SAToIA(v...)...)
 					}
 				}
 

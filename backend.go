@@ -316,8 +316,8 @@ func (b Binding) addGlobalInjections() {
 // newBinding creates a new binding object that is associated with the given backend.
 // All existing global Injections will be added to this binding.
 func (b *Backend) newBinding(in,mn string) (*binding) {
-	bind := b.Binding(in,mn)
-	if bind != nil {
+	_,found := b.Binding(in,mn)
+	if found {
 		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
 	} else {
 		if _,f := b.BindingContainer[in]; !f {
@@ -612,13 +612,13 @@ func (b Binding) Name() string {
 }
 
 // Binding searches a concrete binding by the given interface and method name.
-func (b BindingContainer) Binding(i string, mn string) *Binding {
-	if _,found := b[i];!found {
-		return nil
+func (b BindingContainer) Binding(i string, mn string) (ret Binding,found bool) {
+	if _,found = b[i];!found {
+		return
 	}
 
-	ret,_ := b[i][mn]
-	return &ret
+	ret,found = b[i][mn]
+	return
 }
 
 // Binding is a convenience method to retrieve the method of a interface. It panics if the method does not exist.
@@ -714,7 +714,7 @@ func (b BindingContainer) Invoke(i,m string, args ...interface{}) interface{} {
 
 // InvokeI is a convenience method for invoking methods/function without prior discovery.
 func (b BindingContainer) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
-	if r := b.Binding(i,m);r != nil {
+	if r,found := b.Binding(i,m);found {
 		return r.InvokeI(inj,args...)
 	} else {
 		panic(fmt.Errorf("Binding \"%s.%s\" not found.",i,m))

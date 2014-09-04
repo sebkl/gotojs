@@ -77,7 +77,7 @@ var {{.NS}} = {{.NS}} || {};
 {{.NS}}.HELPER={
 		createCHASH: function makeid() {
 			var ret = "";	
-			for( var i=0; i < 10; i++ )
+			for( var i=0; i < {{.CL}}; i++ )
 				ret += {{.NS}}.CONST.ALPHA.charAt(Math.floor(Math.random() * {{.NS}}.CONST.ALPHA.length));
 			return ret.toUpperCase();
 		}

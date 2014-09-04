@@ -4,9 +4,19 @@ import (
 	//"flag"
 	"os"
 	"fmt"
+	"regexp"
 	"io/ioutil"
 	. "github.com/sebkl/gotojs"
+	. "github.com/sebkl/gotojs/client"
 	compilerapi "github.com/ant0ine/go-closure-compilerapi"
+	"encoding/json"
+	"strings"
+)
+
+const (
+	fflag = os.FileMode(0644)
+	dflag = os.FileMode(0755)
+	DefaultServerEnvName = "GOTOJS_HOST"
 )
 
 func printUsage() {
@@ -20,16 +30,17 @@ The Commands are:
 	create 	<path_to_app_root>		Create a sample directory structure.
 	export 	<path_to_template_dir>		Exports internally used templates.
 	compile <path_to_js_file> [output]	Compile javascript file.
+	<interface_name>.<method_name> [args]   Invoke call of remote gotojs instance. The
+						configuration is taken from the "%s"
+						environment variable. Default is:
+						"http://localhost:8080/gotojs"
 
 Examples:
+	GOTOJS_HOST="http://somehost.com/gotojs" %s Trace.Echo
 	%s create /var/www/helloworld
-`,cmd,cmd)
+`,cmd,DefaultServerEnvName,cmd,cmd)
 }
 
-const (
-	fflag = os.FileMode(0644)
-	dflag = os.FileMode(0755)
-)
 
 func check(e error) {
 	if e != nil {
@@ -149,27 +160,27 @@ func main() {
 
 func main() {
 	al := len(os.Args)
-	if al < 3 {
+	if al < 2 {
 		printUsage()
 		return
 	}
 
 	cmd := os.Args[1]
-	arg := os.Args[2]
+	args := os.Args[2:]
 
 
 	switch cmd {
 		case "example":
-			createSampleFiles(arg)
-			exportTemplates(arg + "/" + RelativeTemplatePath)
+			createSampleFiles(args[0])
+			exportTemplates(args[0] + "/" + RelativeTemplatePath)
 		case "create":
-			createBaseDirs(arg)
-			exportTemplates(arg + "/" + RelativeTemplatePath)
+			createBaseDirs(args[0])
+			exportTemplates(args[0] + "/" + RelativeTemplatePath)
 		case "export":
-			exportTemplates(arg)
+			exportTemplates(args[0])
 		case "compile":
 			client := &compilerapi.Client{Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
-			bs, err := ioutil.ReadFile(arg)
+			bs, err := ioutil.ReadFile(args[0])
 			check(err)
 			o := client.Compile(bs)
 
@@ -189,8 +200,27 @@ func main() {
 				fmt.Println(v.AsLogline());
 			}
 		default:
-			fmt.Printf("Unknown command: %s\n\n",cmd)
-			printUsage()
+			r := regexp.MustCompile(`^(.*)\.(.*)$`)
+			if r.MatchString(cmd) {
+				sa := r.FindStringSubmatch(cmd)
+				iname := sa[1]
+				mname := sa[2]
+				server := os.Getenv(DefaultServerEnvName)
+				c := NewClient(server)
+				fmt.Printf("> %s.%s(%s) @ %s\n\n",iname,mname,strings.Join(args,","),server)
+				ret,err := c.Invoke(iname,mname,SAToIA(args...)...)
+
+				if err != nil {
+					fmt.Printf("FAILED: %s",err)
+					os.Exit(1)
+				} else {
+					by, _ := json.MarshalIndent(ret,"","  ")
+					fmt.Printf("%s",string(by))
+				}
+			} else {
+				fmt.Printf("Unknown command: %s\n\n",cmd)
+				printUsage()
+			}
 	}
 
 }

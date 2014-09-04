@@ -324,7 +324,7 @@ func TestPassInjection(t *testing.T) {
 
 	b := backend.Interface("TT").Bindings()
 
-	mb := backend.Binding("TT","Get")
+	mb,_ := backend.Binding("TT","Get")
 
 
 	if mb.ValidationString() != "i" {
@@ -359,7 +359,7 @@ func TestNegativeFilterChain(t *testing.T) {
 	// Now SetParam still works
 	backend.Invoke("TestService","SetParam",17)
 
-	b := backend.Binding("TestService","SetParam")
+	b,_ := backend.Binding("TestService","SetParam")
 	defer b.ClearFilter() // Make sure to remove filter after test.
 
 	b.If(func(b Binding,inj Injections) bool {
@@ -405,12 +405,12 @@ func BenchmarkFibonacci(b *testing.B) {
 
 func TestExposeMethod(b *testing.T) {
 	backend.ExposeMethod(MyTestService,"GetParam","AlternateService")
-	found := backend.Binding("AlternateService","GetParam")
+	_,found := backend.Binding("AlternateService","GetParam")
 
 	i := backend.Interface("AlternateService")
 	defer backend.RemoveInterface("AlternateService")
 
-	if len(i.Bindings()) != 1 || found == nil {
+	if len(i.Bindings()) != 1 || !found {
 		b.Errorf("Regexp filter for exposing a single method failed.")
 	}
 }

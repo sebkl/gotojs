@@ -14,7 +14,7 @@ import(
 
 const (
 	ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	CRIDLength = 10
+	CRIDLength = 20
 )
 
 type Client struct {
@@ -26,6 +26,8 @@ type Client struct {
 	Header http.Header
 }
 
+//BinaryResponse represents a non json content which cannot be inspected by gotojs
+// like an image or other content.
 type BinaryResponse struct { *http.Response }
 
 func (b *BinaryResponse) MimeType() string {
@@ -49,6 +51,7 @@ func (b *BinaryResponse) Catch() (ret []byte, err error) {
 	return
 }
 
+//NewBinaryResponse returns a new binary response object for a http response.
 func NewBinaryResponse(res *http.Response) (ret *BinaryResponse) {
 	if res.Body != nil {
 		ret = &BinaryResponse{res}
@@ -149,7 +152,9 @@ func (c *Client) Invoke(in,mn string,args ...interface{}) (ret interface{}, err 
 	//Build request Headers
 	req.Header = c.Header
 	req.Header.Set("Content-Type","application/json")
-	req.Header.Set("x-gotojs-proxy",c.proxyHeader)
+	if len(c.proxyHeader) > 0 {
+		req.Header.Set("x-gotojs-proxy",c.proxyHeader)
+	}
 	req.Header.Set("x-gotojs-crid",c.nextCRID())
 
 	//Perform remote call
@@ -159,6 +164,11 @@ func (c *Client) Invoke(in,mn string,args ...interface{}) (ret interface{}, err 
 	}
 
 	mt := resp.Header.Get("Content-Type")
+	eh := resp.Header.Get("x-gotojs-error")
+	if len(eh) > 0 {
+		err = fmt.Errorf(eh)
+		return
+	}
 
 	switch mt {
 		case "application/json":
@@ -169,7 +179,9 @@ func (c *Client) Invoke(in,mn string,args ...interface{}) (ret interface{}, err 
 				return nil, fmt.Errorf("Remote response could not be parsed: %s",err)
 			}
 		default:
-			ret = NewBinaryResponse(resp)
+			br := NewBinaryResponse(resp)
+			by,err = br.Catch()
+			ret = string(by)
 	}
 	return
 }

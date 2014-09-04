@@ -134,7 +134,8 @@ func TestValidationString(t *testing.T) {
 
 func TestParameterTypeCount(t *testing.T) {
 	frontend.ExposeFunction( func (bc *BinaryContent) { },"a","b")
-	if count := countParameterType(frontend.Binding("a","b"),&BinaryContent{}); count != 1 {
+	b,_ := frontend.Binding("a","b")
+	if count := countParameterType(b,&BinaryContent{}); count != 1 {
 		t.Errorf("Incorrect ParameterTypeCount: %d/%d",count,1)
 	}
 }
@@ -190,6 +191,19 @@ func TestCallParameter(t *testing.T) {
 	if res.StatusCode == http.StatusOK {
 		dumpResponse(t,res,err)
 		t.Errorf("Negative Test call parameter failed.")
+	}
+}
+
+func TestWrongCall(t *testing.T) {
+	res,err := http.Get("http://localhost:8786/gotojs/TestService/SetAndGetParamxyz")
+	if res.StatusCode != http.StatusNotFound {
+		dumpResponse(t,res,err)
+		t.Errorf("Expected 404 status for unknown binding %d/%d.",res.StatusCode,http.StatusNotFound)
+	}
+
+	eh := res.Header.Get(DefaultHeaderError)
+	if len(eh) <= 0 {
+		t.Errorf("Expected error header for unknwon binding: '%s'",eh)
 	}
 }
 

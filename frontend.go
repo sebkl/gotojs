@@ -41,11 +41,11 @@ import (
 // Configuration flags.
 const (
 	F_CLEAR = 0
-	F_LOAD_LIBRARIES = 1<<0
-	F_LOAD_TEMPLATES = 1<<1
-	F_VALIDATE_ARGS = 1<<2
-	F_ENABLE_ACCESSLOG = 1<<3
-	F_ENABLE_MINIFY = 1 <<4
+	F_LOAD_LIBRARIES =	1<<iota
+	F_LOAD_TEMPLATES =	1<<iota
+	F_VALIDATE_ARGS =	1<<iota
+	F_ENABLE_ACCESSLOG =	1<<iota
+	F_ENABLE_MINIFY =	1<<iota
 	F_DEFAULT =	F_LOAD_LIBRARIES |
 			F_LOAD_TEMPLATES |
 			F_VALIDATE_ARGS |
@@ -55,16 +55,16 @@ const (
 
 // Identifier of initialization parameter
 const (
-	P_BASEPATH = 0
-	P_EXTERNALURL = 1
-	P_NAMESPACE = 2
-	P_PUBLICDIR = 3
-	P_CONTEXT = 4
-	P_LISTENADDR = 5
-	P_PUBLICCONTEXT = 6
-	P_APPLICATIONKEY = 7
-	P_FLAGS = 8
-	P_COOKIENAME = 9
+	P_BASEPATH = iota
+	P_EXTERNALURL = iota
+	P_NAMESPACE = iota
+	P_PUBLICDIR = iota
+	P_CONTEXT = iota
+	P_LISTENADDR = iota
+	P_PUBLICCONTEXT = iota
+	P_APPLICATIONKEY = iota
+	P_FLAGS = iota
+	P_COOKIENAME = iota
 )
 
 // Internally used constants and default values
@@ -942,6 +942,7 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	defer func() {
 		w.Header().Set(CTHeader,mt)
 		w.Header().Set(DefaultHeaderCRID,crid)
+		w.Header().Set("Access-Control-Allow-Origin","*")
 		if re:=recover();re!=nil {
 			mes := fmt.Sprintf("/*\n\n%s\n\n*/",re)
 			w.Header().Set(DefaultHeaderError,mes) //TODO: maybe som encoding here.

@@ -764,6 +764,11 @@ func (f *Frontend) Context(args ...string) string {
 	al:=len(args)
 	if (al > 0) {
 		f.context = args[0]
+
+		//Sanity checks on the context
+		if len(f.context) <= 0 {
+			f.context = "/"
+		}
 		if !strings.HasPrefix(f.context,"/") {
 			f.context = "/" + f.context
 		}
@@ -823,12 +828,19 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	}
 
 	if (al > 1) {
-		f.context = args[1]
+		f.context = f.Context(args[1])
 	}
+
 
 	// Setup gotojs engine handler.
 	log.Printf("GotojsEngine enabled at '%s'",f.context)
-	f.HandleFunc(f.context + "/",func (res http.ResponseWriter, req *http.Request) {
+
+	sep := "/"
+	if strings.HasSuffix(f.context,"/") {
+		sep = ""
+	}
+
+	f.HandleFunc(f.context + sep,func (res http.ResponseWriter, req *http.Request) {
 		f.serveHTTP(res,req)
 	})
 

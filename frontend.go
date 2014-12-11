@@ -791,24 +791,24 @@ func (f *Frontend) EnableFileServer(args ...string) {
 	}
 }
 
-// LogWraper type acts as a http handler that wrapps any other Muxer
+// LogWrapper type acts as a http handler that wrapps any other Muxer
 // or Handler
-type LogWraper struct{
+type LogWrapper struct{
 	handler http.Handler
 }
 
 // ServeHTTP is a httpn handler method and wraps the origin one of 
 // LogMuxer
-func (lm *LogWraper) ServeHTTP(w http.ResponseWriter,r *http.Request)  {
+func (lm *LogWrapper) ServeHTTP(w http.ResponseWriter,r *http.Request)  {
 	t := time.Now()
 	defer Log(r.Method,strconv.FormatInt(time.Since(t).Nanoseconds() / (1000),10),r.URL.Path)
 	lm.handler.ServeHTTP(w,r)
 }
 
-//NewLogWraper creates a new LogMuxer, that wraps the given http 
+//NewLogWrapper creates a new LogMuxer, that wraps the given http 
 // handler. See LogMuxer for more details.
-func NewLogWraper(origin http.Handler) *LogWraper {
-	return &LogWraper{origin}
+func NewLogWrapper(origin http.Handler) *LogWrapper {
+	return &LogWrapper{origin}
 }
 
 // Setup creates and returns the final http handler for the frontend.
@@ -833,7 +833,7 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	})
 
 	if f.flags & F_ENABLE_ACCESSLOG  > 0{
-		handler = NewLogWraper(f)
+		handler = NewLogWrapper(f)
 	} else {
 		handler = f
 	}

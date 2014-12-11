@@ -77,7 +77,7 @@ const (
 	MethodTemplate= "method.js"
 	CTHeader = "Content-Type"
 	DefaultNamespace = "GOTOJS"
-	DefaultContext = "/gotojs"
+	DefaultContext = "/gotojs/"
 	//DefaultEnginePath = "_engine.js"
 	DefaultListenAddress = "localhost:8080"
 	DefaultFileServerDir = "public"
@@ -396,7 +396,7 @@ func NewFrontend(args ...Parameters) (*Frontend){
 						panic(fmt.Errorf("Could not parse external url: \"%s\".",args[1]))
 					}
 					f.extUrl = url
-					f.context = string(url.Path)
+					f.Context(string(url.Path))
 					f.addr = string(url.Host)
 				case P_LISTENADDR:
 					f.addr = v
@@ -405,7 +405,7 @@ func NewFrontend(args ...Parameters) (*Frontend){
 				case P_PUBLICDIR:
 					f.publicDir = v
 				case P_CONTEXT:
-					f.context = v
+					f.Context(v)
 				case P_NAMESPACE:
 					f.namespace = v
 				case P_PUBLICCONTEXT:
@@ -607,12 +607,12 @@ func (f *Frontend) engineCacheKey(url *url.URL,platform string) (key string, rur
 
 	switch platform {
 		case "nodejs":
-			key = fmt.Sprintf("%s.%s%s",url.Scheme,url.Host,f.context)
+			key = fmt.Sprintf("%s.%s%s",url.Scheme,url.Host,f.Context())
 		case "jquery":
 			if f.extUrl != nil {
 				rurl = f.extUrl.String()
 			} else {
-				rurl = f.context
+				rurl = f.Context()
 			}
 	}
 	return
@@ -772,8 +772,12 @@ func (f *Frontend) Context(args ...string) string {
 		if !strings.HasPrefix(f.context,"/") {
 			f.context = "/" + f.context
 		}
+		if !strings.HasSuffix(f.context,"/") {
+			f.context = f.context + "/"
+		}
 	}
-	return f.context
+
+	return f.context[:len(f.context)-1]
 }
 
 // EnableFileServer configures the file server and assigns the rooutes to the Multiplexer.
@@ -828,19 +832,13 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	}
 
 	if (al > 1) {
-		f.context = f.Context(args[1])
+		f.Context(args[1])
 	}
-
 
 	// Setup gotojs engine handler.
 	log.Printf("GotojsEngine enabled at '%s'",f.context)
 
-	sep := "/"
-	if strings.HasSuffix(f.context,"/") {
-		sep = ""
-	}
-
-	f.HandleFunc(f.context + sep,func (res http.ResponseWriter, req *http.Request) {
+	f.HandleFunc(f.context,func (res http.ResponseWriter, req *http.Request) {
 		f.serveHTTP(res,req)
 	})
 
@@ -898,7 +896,7 @@ func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 	}
 	ret.Host = r.Host
 
-	if elems := strings.SplitAfterN(r.URL.Path,f.context,2); len(elems) == 2 {
+	if elems := strings.SplitAfterN(r.URL.Path,f.Context(),2); len(elems) == 2 {
 		ret.Path = elems[0]
 	} else {
 		ret.Path = r.URL.Path
@@ -945,7 +943,6 @@ func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindi
 //		func (string,string,string,String).
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
 //	"PUT":  Same as get but allows binary content in the body.
-// If the handler of gotojs needs to be taken directly, the method Mux() should be used instead.
 func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)
@@ -957,7 +954,7 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin","*")
 		if re:=recover();re!=nil {
 			mes := fmt.Sprintf("/*\n\n%s\n\n*/",re)
-			w.Header().Set(DefaultHeaderError,mes) //TODO: maybe som encoding here.
+			w.Header().Set(DefaultHeaderError,mes) //TODO: maybe some encoding here.
 			if httpContext != nil {
 				http.Error(w,mes,httpContext.ErrorStatus)
 			} else {
@@ -985,10 +982,7 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	if strings.HasPrefix(path,f.context) {
 		sub:= strings.SplitAfterN(path,f.context,2)
 		elems := strings.Split(sub[1],"/")
-
-		if len(elems) >= 3 {
-			elems = elems[1:]
-
+		if len(elems) >= 2 {
 			//Check if binding exists
 			if b,found := f.Binding(elems[0],elems[1]); found {
 				//Take paremeters from path

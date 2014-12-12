@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"fmt"
 	"strconv"
+	"encoding/json"
+	"time"
 )
 
 const (
@@ -33,6 +35,14 @@ type bindingInterface interface {
 	base() *binding
 }
 
+// backend consits of the binding container as well as some administrative attributes like revision and injection references.
+type backend struct {
+	BindingContainer
+	globalInjections Injections
+	revision uint64
+	converterRegistry map[reflect.Type]Converter
+}
+
 // binding declares binding type independent attributes
 type binding struct {
 	elemName string
@@ -40,7 +50,7 @@ type binding struct {
 	injections map[int]reflect.Type
 	singletons Injections
 	filters []Filter
-	backend *Backend
+	backend *backend
 }
 
 type functionBinding struct {
@@ -89,12 +99,6 @@ type BindingContainer map[string]Interface
 // Injections is a container of injection objects sorted by their type.
 type Injections map[reflect.Type]interface{}
 
-// Backend consits of the binding container as well as some administrative attributes like revision and injection references.
-type Backend struct {
-	BindingContainer
-	globalInjections Injections
-	revision uint64
-}
 
 // Mapping of kind to char for method/function signature validation string.
 var kindMapping = map[reflect.Kind]byte{
@@ -119,17 +123,30 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Func: '_',
 	reflect.Interface: 'o',
 	reflect.Map: 'm',
-	reflect.Ptr: 'i',
+	reflect.Ptr: 'o',
 	reflect.Slice: 'a',
 	reflect.String: 's',
 	reflect.Struct: 'o',
 	reflect.UnsafePointer: 'i' }
 
-//NewBackend is a constructor for the BindingContainer data structure.
-func NewBackend() (Backend) {
-	return Backend{
+//newBackend is a constructor for the BindingContainer data structure.
+func newBackend() (backend) {
+	ret := backend{
 		BindingContainer: make(BindingContainer),
-		globalInjections: make(Injections)}
+		globalInjections: make(Injections),
+		converterRegistry: make(map[reflect.Type]Converter),
+	}
+
+	ret.RegisterConverter("",StringConverter)
+	ret.RegisterConverter(time.Now(),TimeConverter)
+
+	return ret
+}
+
+//RegisterConverter defines the given converter function for the assigned type.
+func (b backend) RegisterConverter(t interface{}, c Converter) {
+	log.Printf("Registering converter for type %s",reflect.TypeOf(t))
+	b.converterRegistry[reflect.TypeOf(t)] = c
 }
 
 // AddInjection adds a singleton injection object for the given binding and declares its type
@@ -229,6 +246,7 @@ func (b Binding) ValidationString() (ret string){
 }
 func (b *binding) signature(a []reflect.Type) (ret string) {
 	ret = ""
+	//TODO: check direct Mapping
 	for _,v := range a {
 		ret += string(kindMapping[v.Kind()])
 	}
@@ -276,7 +294,7 @@ func (bs Bindings) AddInjection(i interface{}) Bindings {
 
 // SetupGlobaleIjection declares a type that will always be injected.
 // This applies for both existing bindings as well as new bindings.
-func (b Backend) SetupGlobalInjection(i interface{}) {
+func (b backend) SetupGlobalInjection(i interface{}) {
 	t := reflect.TypeOf(i)
 	b.globalInjections[t] = i
 	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
@@ -315,7 +333,7 @@ func (b Binding) addGlobalInjections() {
 
 // newBinding creates a new binding object that is associated with the given backend.
 // All existing global Injections will be added to this binding.
-func (b *Backend) newBinding(in,mn string) (*binding) {
+func (b *backend) newBinding(in,mn string) (*binding) {
 	_,found := b.Binding(in,mn)
 	if found {
 		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
@@ -340,7 +358,7 @@ func (b *Backend) newBinding(in,mn string) (*binding) {
 }
 
 //NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *Backend) newRemoteBinding(i RemoteBinder,sig,in,mn string) (ret Binding) {
+func (b *backend) newRemoteBinding(i RemoteBinder,sig,in,mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &remoteBinding{
 		binding: *b.newBinding(in,mn),
 		remoteSignature: sig,
@@ -353,7 +371,7 @@ func (b *Backend) newRemoteBinding(i RemoteBinder,sig,in,mn string) (ret Binding
 
 //NewMethodBinding creates a new method binding with the given interface and method name, whereby
 // x specifies the x-th method of the given object.
-func (b *Backend) newMethodBinding(i interface{},x int,in,mn string) (ret Binding) {
+func (b *backend) newMethodBinding(i interface{},x int,in,mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &methodBinding{
 		binding: *b.newBinding(in,mn),
 		elemNum: x,
@@ -365,7 +383,7 @@ func (b *Backend) newMethodBinding(i interface{},x int,in,mn string) (ret Bindin
 }
 
 //NewFunctionBinding creates a new function binding with the given interface and method name.
-func (b *Backend) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
+func (b *backend) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
 	ret =  Binding{bindingInterface: &functionBinding{
 		binding: *b.newBinding(in,mn),
 		i: i,
@@ -377,7 +395,7 @@ func (b *Backend) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
 
 //NewAttributeBinding creates a new attribute getter binding whereby x specifies the x-th
 // field of there referenced object.
-func (b *Backend) newAttributeBinding(i interface{},x int,in,mn string) (ret Binding) {
+func (b *backend) newAttributeBinding(i interface{},x int,in,mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &attributeBinding{
 		binding: *b.newBinding(in,mn),
 		elemNum: x,
@@ -390,12 +408,12 @@ func (b *Backend) newAttributeBinding(i interface{},x int,in,mn string) (ret Bin
 
 // Expose an entire interface. All methods of the given interface will be exposed. THe name of the
 // exposed interface is either taken from type name or could be specified as additional name parameter.
-func (b *Backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
+func (b *backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"",name...)
 }
 
 // ExposeMethod is a convenience method to ExposeMethods for exposing a single method of an interface.
-func (b *Backend) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
+func (b *backend) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"^" + name + "$",target_name...)
 }
 
@@ -433,12 +451,12 @@ func findInterfaceName(i interface{}) (in string){
 
 //ExposeAllAttributes is a convenience method to ExposeAttribute which exposes
 // all public attributes of the given object.
-func (b* Backend) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
+func (b* backend) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
 	return b.ExposeAttributes(i,"",name...)
 }
 
 // ExposeAttributes exposes getter function to all public attributes of the given object.
-func (b* Backend) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
+func (b* backend) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -469,7 +487,7 @@ func (b* Backend) ExposeAttributes(i interface{}, pattern string, name ...string
 }
 
 // ExposeMethods exposes the methods of a interface that do match the given regex pattern.
-func (b *Backend) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
+func (b *backend) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -517,7 +535,7 @@ func (b *Backend) ExposeMethods(i interface{},pattern string, name ...string) (r
 }
 
 // ExposeFunction exposes a single function. No receiver is required for this binding.
-func (b *Backend) ExposeFunction(f interface{}, name ...string) Bindings {
+func (b *backend) ExposeFunction(f interface{}, name ...string) Bindings {
 	v:= reflect.ValueOf(f)
 	if v.Kind() != reflect.Func {
 		panic(fmt.Errorf("Parameter is not a function. %s/%s",v.Kind().String(),reflect.Func.String()))
@@ -541,13 +559,13 @@ func (b *Backend) ExposeFunction(f interface{}, name ...string) Bindings {
 }
 
 ///ExposeYourself exposes some administrative and discovery methods of the gotojs backend functionality.
-func (b *Backend) ExposeYourself(args ...string) (ret Bindings) {
+func (b *backend) ExposeYourself(args ...string) (ret Bindings) {
 	in := DefaultInternalInterfaceName
 	if len(args) > 0 {
 		in = args[0]
 	}
 	ret = make(Bindings,2)
-	ret[0] = b.ExposeFunction(func (b *Backend) map[string]string {
+	ret[0] = b.ExposeFunction(func (b *backend) map[string]string {
 		bs := b.Bindings()
 		ret := make(map[string]string)
 		for _,b := range bs {
@@ -556,7 +574,7 @@ func (b *Backend) ExposeYourself(args ...string) (ret Bindings) {
 		return ret
 	},in,"Bindings").AddInjection(b)[0]
 
-	ret[1] = b.ExposeFunction(func (b *Backend) []string{
+	ret[1] = b.ExposeFunction(func (b *backend) []string{
 		return b.InterfaceNames()
 	},in,"Interfaces").AddInjection(b)[0]
 	return
@@ -768,46 +786,65 @@ func MergeInjections(inja ...Injections) (ret Injections) {
 
 //convertParameterValue tries to convert the value of the given parameter to the target type.
 //More hi-level calls like strconv may be involved here.
-func convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
+func (b *backend) convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
 	tk := at.Kind()
 	sk := av.Kind()
-	if (tk != sk) {
-		switch sk {
-			case reflect.String:
-				skv := av.String()
-				var err error
-				var v interface{}
-				switch tk {
-					case reflect.Float64,reflect.Float32:
-						v,err = strconv.ParseFloat(skv,64)
-					case reflect.Int,reflect.Int8,reflect.Int16,reflect.Int32,reflect.Uint,reflect.Uint32,reflect.Uint8,reflect.Uint16:
-						v,err = strconv.Atoi(skv)
-					case reflect.Int64,reflect.Uint64:
-						v,err = strconv.ParseInt(skv,10,64)
-					default:
-						err = fmt.Errorf("No conversion type found for %s",tk)
-				}
-				if err == nil {
-					av = reflect.ValueOf(v)
-				} else {
-					log.Printf("%s",err)
-				}
-			default:
-				if tk == reflect.String {
-					switch sk {
-						case reflect.Float64,reflect.Float32:
-							av = reflect.ValueOf(fmt.Sprintf("%f",av.Interface()))
-						case reflect.Int,reflect.Int8,reflect.Int16,reflect.Int32,reflect.Uint,reflect.Uint32,reflect.Uint8,reflect.Uint16,reflect.Int64,reflect.Uint64:
-							av = reflect.ValueOf(fmt.Sprintf("%d",av.Interface()))
-						default:
-							av = reflect.ValueOf(fmt.Sprintf("%s",av.Interface()))
-					}
-				}
+
+	//Check first if direct converter is registered.
+	if converter,ok := b.converterRegistry[at]; ok {
+		rv, err := converter(av.Interface(),at)
+		if err == nil {
+			return reflect.ValueOf(rv)
 		}
-		return av.Convert(at) // Try to convert automatically.
-	} else {
-		return av
+		log.Printf("Converter failed for type '%s': %s",at,err)
 	}
+
+	switch sk {
+		case reflect.String:
+			skv := av.String()
+			var err error
+			var v interface{}
+			switch tk {
+				case reflect.Float64,reflect.Float32:
+					v,err = strconv.ParseFloat(skv,64)
+				case reflect.Int,reflect.Int8,reflect.Int16,reflect.Int32,reflect.Uint,reflect.Uint32,reflect.Uint8,reflect.Uint16:
+					v,err = strconv.Atoi(skv)
+				case reflect.Int64,reflect.Uint64:
+					v,err = strconv.ParseInt(skv,10,64)
+				case reflect.String:
+					return av
+				default:
+					err = fmt.Errorf("No conversion type found for %s",tk)
+			}
+			if err == nil {
+				av = reflect.ValueOf(v)
+			} else {
+				log.Printf("%s",err)
+			}
+		case reflect.Map, reflect.Struct:
+			b,err := json.Marshal(av.Interface())
+			if err != nil {
+				panic(fmt.Errorf("Could not json encode parameter: %s (P1)",err))
+			}
+
+			rv := reflect.New(at)
+			i := rv.Interface()
+			err = json.Unmarshal(b,i)
+			if err != nil {
+				panic(fmt.Errorf("Could not json decode parameter: %s (P2)",err))
+			}
+			return reflect.Indirect(reflect.ValueOf(i))
+		default:
+			if tk == sk {
+				return av
+			}
+			if tk == reflect.String {
+				if iv,err := StringConverter(av.Interface(),reflect.TypeOf("")); err != nil {
+					av = reflect.ValueOf(iv)
+				}
+			}
+	}
+	return av.Convert(at) // Try to convert automatically.
 }
 
 //callValuesI compiles the final function or methoad call parameters using the given injections
@@ -839,7 +876,7 @@ func callValuesI(b bindingInterface,inj Injections, args []interface{}) (ret []r
 		}
 
 		// Assign final value to final call vectob.
-		ret[ai] = convertParameterValue(av,at)
+		ret[ai] = b.base().backend.convertParameterValue(av,at)
 	}
 
 	if targetArgCount != (iai+ic) {

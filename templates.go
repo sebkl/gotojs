@@ -36,7 +36,7 @@ var {{.NS}} = {{.NS}} || {
 				data: data,
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
-					if (typeof(d) =='string' && mt == "{{.CT}}") {
+					if (typeof(d) =='string' && mt != "{{.CT}}") {
 						ret = eval('(' + d + ')');
 					} else {
 						ret = d
@@ -80,8 +80,15 @@ var {{.NS}} = {{.NS}} || {};
 			for( var i=0; i < {{.CL}}; i++ )
 				ret += {{.NS}}.CONST.ALPHA.charAt(Math.floor(Math.random() * {{.NS}}.CONST.ALPHA.length));
 			return ret.toUpperCase();
+		},
+		base64Encode: function(a) {
+			return btoa(JSON.stringify(a));
 		}
 	};
+
+{{.NS}}.ENCODERS={
+		'o': {{.NS}}.HELPER.base64Encode
+};
 
 {{.NS}}.CONST.CHASH = {{.NS}}.HELPER.createCHASH()
 	

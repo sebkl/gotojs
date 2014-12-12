@@ -522,3 +522,31 @@ func TestClient(t *testing.T) {
 		t.Errorf("Client call failed: %d/%d",int(pi),1000)
 	}
 }
+
+func TestObjectCall(t *testing.T) {
+	type ts struct {
+		A int
+		B int
+	}
+
+	frontend.ExposeFunction( func (v ts) int {
+		return v.A+v.B
+	},"Math","AddS")
+
+	frontend.ExposeFunction( func (v *ts) int {
+		return v.A+v.B
+	},"Math","AddP")
+
+	out,err := executeJS(t,frontend,engineJQuery,"PROXY.Math.AddS({a: 17, b: 4}, function(r) { if (r != 21) { throw 'Unexpected return value:' + r;}});");
+	if err != nil {
+		t.Errorf("Executing nodejs parser failed or error occured: %s",err.Error())
+	}
+
+	out,err = executeJS(t,frontend,engineJQuery,"PROXY.Math.AddP({a: 16, b: 2}, function(r) { if (r != 18) { throw 'Unexpected return value:' + r;}});");
+	if err != nil {
+		t.Errorf("Executing nodejs parser failed or error occured: %s",err.Error())
+	}
+
+	t.Logf(out)
+	frontend.RemoveInterface("Math")
+}

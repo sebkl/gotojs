@@ -48,9 +48,13 @@ const (
 	F_ENABLE_MINIFY =	1<<iota
 	F_DEFAULT =	F_LOAD_LIBRARIES |
 			F_LOAD_TEMPLATES |
-			F_VALIDATE_ARGS |
 			F_ENABLE_ACCESSLOG |
 			F_ENABLE_MINIFY
+
+	F_DEVELOPMENT =	F_LOAD_LIBRARIES |
+			F_LOAD_TEMPLATES |
+			F_VALIDATE_ARGS |
+			F_ENABLE_ACCESSLOG
 )
 
 // Identifier of initialization parameter
@@ -171,7 +175,7 @@ func (c *HTTPContext) Errorf(status int ,f string, args ...interface{})  {
 // The main frontend object to the "gotojs" bindings. It can be treated as a 
 // HTTP facade of "gotojs".
 type Frontend struct {
-	Backend //embedd BindingContainer and extend
+	backend //embedd BindingContainer and extend
 	*http.ServeMux //embedd http muxer
 	templateSource Templates
 	template map[string]*template.Template
@@ -366,7 +370,7 @@ func (c *HTTPContext) CRID() string {
 //func NewFrontend(flags int,args ...string) (*Frontend){
 func NewFrontend(args ...Parameters) (*Frontend){
 	f := Frontend{
-		Backend: NewBackend(),
+		backend: newBackend(),
 		ServeMux: http.NewServeMux(),
 		flags: F_DEFAULT,
 		extUrl: nil,
@@ -953,6 +957,8 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 		w.Header().Set(DefaultHeaderCRID,crid)
 		w.Header().Set("Access-Control-Allow-Origin","*")
 		if re:=recover();re!=nil {
+			//TODO: Create a HTTPErrorf() (besiedes httpcontest.Errorf() )
+			// here that also contains the desired status code.
 			mes := fmt.Sprintf("/*\n\n%s\n\n*/",re)
 			w.Header().Set(DefaultHeaderError,mes) //TODO: maybe some encoding here.
 			if httpContext != nil {

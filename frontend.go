@@ -721,13 +721,13 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 		// (3) Interface objects
 		interfaces:=b.InterfaceNames()
 		for _,in := range interfaces{
-			interfaceParams := Append(map[string]string{
+			interfaceParams := MapAppend(map[string]string{
 				tokenInterfaceName: in }, proxyParams)
 
 			b.template[p].Lookup(InterfaceTemplate).Execute(minbuf,interfaceParams)
 
 			// (4) Method objects
-			methods := b.BindingContainer.BindingNames(in)
+			methods := b.bindingContainer.BindingNames(in)
 			for _,m := range methods {
 				bi,_ := b.Binding(in,m)
 				vs:= bi.ValidationString()
@@ -738,7 +738,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 					meth = "PUT"
 				}
 
-				methodParams := Append(map[string]string{
+				methodParams := MapAppend(map[string]string{
 					tokenMethodName: m,
 					tokenHttpMethod: meth,
 					tokenArgumentsString: vs},interfaceParams)
@@ -804,24 +804,24 @@ func (f *Frontend) EnableFileServer(args ...string) {
 	}
 }
 
-// LogWrapper type acts as a http handler that wrapps any other Muxer
+// logWrapper type acts as a http handler that wrapps any other Muxer
 // or Handler
-type LogWrapper struct{
+type logWrapper struct{
 	handler http.Handler
 }
 
 // ServeHTTP is a httpn handler method and wraps the origin one of 
 // LogMuxer
-func (lm *LogWrapper) ServeHTTP(w http.ResponseWriter,r *http.Request)  {
+func (lm *logWrapper) ServeHTTP(w http.ResponseWriter,r *http.Request)  {
 	t := time.Now()
 	defer Log(r.Method,strconv.FormatInt(time.Since(t).Nanoseconds() / (1000),10),r.URL.Path)
 	lm.handler.ServeHTTP(w,r)
 }
 
-//NewLogWrapper creates a new LogMuxer, that wraps the given http 
+//NewlogWrapper creates a new LogMuxer, that wraps the given http 
 // handler. See LogMuxer for more details.
-func NewLogWrapper(origin http.Handler) *LogWrapper {
-	return &LogWrapper{origin}
+func NewlogWrapper(origin http.Handler) *logWrapper {
+	return &logWrapper{origin}
 }
 
 // Setup creates and returns the final http handler for the frontend.
@@ -847,7 +847,7 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	})
 
 	if f.flags & F_ENABLE_ACCESSLOG  > 0{
-		handler = NewLogWrapper(f)
+		handler = NewlogWrapper(f)
 	} else {
 		handler = f
 	}
@@ -992,12 +992,12 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 			//Check if binding exists
 			if b,found := f.Binding(elems[0],elems[1]); found {
 				//Take paremeters from path
-				args := SAToIA(elems[2:]...)
+				args := sAToIA(elems[2:]...)
 
 				//Check if the query string contains parameters
 				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
 					for _,v := range vals {
-						args = append(args,SAToIA(v...)...)
+						args = append(args,sAToIA(v...)...)
 					}
 				}
 

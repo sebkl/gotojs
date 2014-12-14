@@ -116,7 +116,7 @@ func TestParseJS(t *testing.T) {
 }
 
 func TestValidationString(t *testing.T) {
-	vs := frontend.BindingContainer["TestService"]["SetAndGetParam"].ValidationString()
+	vs := frontend.bindingContainer["TestService"]["SetAndGetParam"].ValidationString()
 	t.Logf("Validation string for \"%s.%s\" is : %s.","TestService","SetAndGetParam",vs)
 	if vs != "i" {
 		t.Errorf("Incorrect validation string: %s",vs)
@@ -125,7 +125,7 @@ func TestValidationString(t *testing.T) {
 		t.Logf("%s,%s,%s,%s,%s",i,o,f,s,sa)
 		return 0
 	},"X","test")
-	vs = frontend.BindingContainer["X"]["test"].ValidationString()
+	vs = frontend.bindingContainer["X"]["test"].ValidationString()
 	t.Logf("Validation string for \"%s.%s\" is : %s.","X","test",vs)
 	if vs != "iofsa" {
 		t.Errorf("Incorrect validation string: %s",vs)
@@ -142,7 +142,7 @@ func TestParameterTypeCount(t *testing.T) {
 
 func TestValidationStringWithInjection(t *testing.T) {
 	frontend.ExposeFunction( func (s *Session,c *HTTPContext) int { return 0 },"X","test")
-	vs := frontend.BindingContainer["X"]["test"].ValidationString();
+	vs := frontend.bindingContainer["X"]["test"].ValidationString();
 	if len(vs) != 0 {
 		t.Errorf("Incorrect validation string: \"%s\"/\"%s\"",vs,"");
 	}
@@ -156,7 +156,7 @@ func (ts *TestService3) Test(a,b,c string,session *Session) string{
 func TestValidationStringWithInjectionAndInterfaceExposure(t *testing.T) {
 	frontend.ExposeInterface(&TestService3{})
 	defer frontend.RemoveInterface("TestService3")
-	vs := frontend.BindingContainer["TestService3"]["Test"].ValidationString();
+	vs := frontend.bindingContainer["TestService3"]["Test"].ValidationString();
 	if len(vs) != 3 {
 		t.Errorf("Incorrect validation string: \"%s\"/\"%s\"",vs,"sss");
 	}

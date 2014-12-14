@@ -23,8 +23,8 @@ const (
 // filter nor the real method call will be invoked.
 type Filter func (Binding,Injections) bool
 
-// RemoteBinder is a function type that will be invoked for a remote binding.
-type RemoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
+// remoteBinder is a function type that will be invoked for a remote binding.
+type remoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
 
 // bindingInterface declare binding specific methods.
 type bindingInterface interface {
@@ -37,7 +37,7 @@ type bindingInterface interface {
 
 // backend consits of the binding container as well as some administrative attributes like revision and injection references.
 type backend struct {
-	BindingContainer
+	bindingContainer
 	globalInjections Injections
 	revision uint64
 	converterRegistry map[reflect.Type]Converter
@@ -73,7 +73,7 @@ type methodBinding struct {
 type remoteBinding struct {
 	binding
 	remoteSignature string
-	i RemoteBinder
+	i remoteBinder
 }
 
 // Binding is a concrete method binding. It maps a interface and method name to a go object's method.
@@ -93,8 +93,8 @@ type Interface map[string]Binding
 // Interfaces represents a list or slice of Interfaces including all its bindings.
 type Interfaces []Interface
 
-// BindingContainer represents a container which consists of a set of interface and its bindings
-type BindingContainer map[string]Interface
+// bindingContainer represents a container which consists of a set of interface and its bindings
+type bindingContainer map[string]Interface
 
 // Injections is a container of injection objects sorted by their type.
 type Injections map[reflect.Type]interface{}
@@ -129,10 +129,10 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Struct: 'o',
 	reflect.UnsafePointer: 'i' }
 
-//newBackend is a constructor for the BindingContainer data structure.
+//newBackend is a constructor for the bindingContainer data structure.
 func newBackend() (backend) {
 	ret := backend{
-		BindingContainer: make(BindingContainer),
+		bindingContainer: make(bindingContainer),
 		globalInjections: make(Injections),
 		converterRegistry: make(map[reflect.Type]Converter),
 	}
@@ -338,14 +338,14 @@ func (b *backend) newBinding(in,mn string) (*binding) {
 	if found {
 		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
 	} else {
-		if _,f := b.BindingContainer[in]; !f {
+		if _,f := b.bindingContainer[in]; !f {
 			im := make(map[string]Binding)
-			b.BindingContainer[in] = im
+			b.bindingContainer[in] = im
 		}
 
-		if _,f := b.BindingContainer[in][mn]; !f {
+		if _,f := b.bindingContainer[in][mn]; !f {
 			r := Binding{}
-			b.BindingContainer[in][mn] = r
+			b.bindingContainer[in][mn] = r
 		}
 	}
 	p := &binding{
@@ -358,14 +358,14 @@ func (b *backend) newBinding(in,mn string) (*binding) {
 }
 
 //NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *backend) newRemoteBinding(i RemoteBinder,sig,in,mn string) (ret Binding) {
+func (b *backend) newRemoteBinding(i remoteBinder,sig,in,mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &remoteBinding{
 		binding: *b.newBinding(in,mn),
 		remoteSignature: sig,
 		i: i,
 	}}
 	ret.addGlobalInjections()
-	b.BindingContainer[in][mn] = ret
+	b.bindingContainer[in][mn] = ret
 	return
 }
 
@@ -378,7 +378,7 @@ func (b *backend) newMethodBinding(i interface{},x int,in,mn string) (ret Bindin
 		i: i,
 	}}
 	ret.addGlobalInjections()
-	b.BindingContainer[in][mn] = ret
+	b.bindingContainer[in][mn] = ret
 	return
 }
 
@@ -389,7 +389,7 @@ func (b *backend) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
 		i: i,
 	}}
 	ret.addGlobalInjections()
-	b.BindingContainer[in][mn] = ret
+	b.bindingContainer[in][mn] = ret
 	return
 }
 
@@ -402,7 +402,7 @@ func (b *backend) newAttributeBinding(i interface{},x int,in,mn string) (ret Bin
 		i: i,
 	}}
 	ret.addGlobalInjections()
-	b.BindingContainer[in][mn] = ret
+	b.bindingContainer[in][mn] = ret
 	return
 }
 
@@ -552,7 +552,7 @@ func (b *backend) ExposeFunction(f interface{}, name ...string) Bindings {
 		fname = name[1]
 	}
 
-	//TODO: make clean and move to ExportFunction method of BindingContainer
+	//TODO: make clean and move to ExportFunction method of bindingContainer
 	pm:= b.newFunctionBinding(f,iname,fname)
 	b.revision++
 	return pm.S()
@@ -630,7 +630,7 @@ func (b Binding) Name() string {
 }
 
 // Binding searches a concrete binding by the given interface and method name.
-func (b BindingContainer) Binding(i string, mn string) (ret Binding,found bool) {
+func (b bindingContainer) Binding(i string, mn string) (ret Binding,found bool) {
 	if _,found = b[i];!found {
 		return
 	}
@@ -649,17 +649,17 @@ func (i Interface) Binding(n string) (r Binding) {
 }
 
 // Remove an entire interface from the binding container identified by the interface name.
-func (b BindingContainer) RemoveInterface(i string) {
+func (b bindingContainer) RemoveInterface(i string) {
 	delete(b,i)
 }
 
 // RemoveBinding removes a single method from the binding container identified by the interface and method name.
-func (b BindingContainer) RemoveBinding(i,m string) {
+func (b bindingContainer) RemoveBinding(i,m string) {
 	delete(b[i],m)
 }
 
 // InterfaceNames retrieves all bound interface names.
-func (b BindingContainer) InterfaceNames() (keys []string) {
+func (b bindingContainer) InterfaceNames() (keys []string) {
 	//TODO: use Interfaces() here.
 	keys = make([]string,len(b))
 	i:=0
@@ -671,7 +671,7 @@ func (b BindingContainer) InterfaceNames() (keys []string) {
 }
 
 // Interfaces returns a list of all interface including its bindings.
-func (b BindingContainer) Interfaces() (ret Interfaces) {
+func (b bindingContainer) Interfaces() (ret Interfaces) {
 	ret = make(Interfaces,len(b))
 	i:=0
 	for _,v := range b {
@@ -682,7 +682,7 @@ func (b BindingContainer) Interfaces() (ret Interfaces) {
 }
 
 //Interface is a convenience method to retrieve an interface. It panics if the interface does not exist.
-func (b BindingContainer) Interface(name string) (ret Interface) {
+func (b bindingContainer) Interface(name string) (ret Interface) {
 	ret,found := b[name]
 	if !found {
 		panic(fmt.Errorf("Interface \"%s\" does not exist.",name))
@@ -691,7 +691,7 @@ func (b BindingContainer) Interface(name string) (ret Interface) {
 }
 
 // BindingNames retreives all bound methods or functions names of the given interface.
-func (b BindingContainer) BindingNames(i string) (methods []string) {
+func (b bindingContainer) BindingNames(i string) (methods []string) {
 	mmap, found :=  b[i]
 	if found {
 		methods = make([]string,len(mmap))
@@ -716,7 +716,7 @@ func (i Interface) Bindings() (ret Bindings) {
 }
 
 // Bindings returns all method bindings of the given container.
-func (b BindingContainer) Bindings() (ret Bindings) {
+func (b bindingContainer) Bindings() (ret Bindings) {
 	is := b.Interfaces()
 	for _,v := range is {
 		bdns := v.Bindings()
@@ -726,12 +726,12 @@ func (b BindingContainer) Bindings() (ret Bindings) {
 }
 
 // Invoke a bound method or function of the given interface and method name.
-func (b BindingContainer) Invoke(i,m string, args ...interface{}) interface{} {
+func (b bindingContainer) Invoke(i,m string, args ...interface{}) interface{} {
 	return b.InvokeI(i,m,nil,args...)
 }
 
 // InvokeI is a convenience method for invoking methods/function without prior discovery.
-func (b BindingContainer) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
+func (b bindingContainer) InvokeI(i,m string,inj Injections, args ...interface{}) interface{} {
 	if r,found := b.Binding(i,m);found {
 		return r.InvokeI(inj,args...)
 	} else {

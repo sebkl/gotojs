@@ -7,6 +7,8 @@ Therefore package gotojs assembles a JS engine which creates proxy objects as JS
 
 Define the Service as a ``struct`` and add the methods.
 ```go
+import . "github.com/sebkl/gotojs"
+
 type MyService struct {
 }
 
@@ -59,7 +61,7 @@ client := NewClient("http://localhost:8080/myapp")
 ret,err := client.Invoke("myservice","Echo","Hello World!")
 ```
 
-### Further Features
+### Further features
 Expose static documents such as html and css files:
 ```go
 fe.EnableFileServer("local/path/to/htdocs","/files")

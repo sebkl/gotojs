@@ -22,8 +22,8 @@ func ContainsS(a []string, s string) bool {
 	return false
 }
 
-// Append string parameter to a string parameter map.
-func Append(to map[string]string,from map[string]string) map[string]string {
+// MapAppend string parameter to a string parameter map.
+func MapAppend(to map[string]string,from map[string]string) map[string]string {
 	for k,v:=range from {
 		to[k] = v
 	}
@@ -96,7 +96,7 @@ func Decrypt(in,  key []byte) []byte {
 }
 
 //sToIArray is an string var args to interface{} array converter.
-func SAToIA(args ...string) (ret []interface{}) {
+func sAToIA(args ...string) (ret []interface{}) {
 	ret = make([]interface{},len(args))
 	for i,v := range args {
 		ret[i] = v

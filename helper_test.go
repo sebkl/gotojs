@@ -25,7 +25,7 @@ func TestAppend(t *testing.T) {
 	m2:= map[string]string{
 		"b": "a"}
 
-	m3:= Append(m1,m2)
+	m3:= MapAppend(m1,m2)
 
 	_,found1 := m3["a"]
 	_,found2 := m3["b"]

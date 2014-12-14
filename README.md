@@ -1,41 +1,96 @@
 # gotojs
-Package gotojs offers a library for **exposing go-interfaces as Javascript proxy objects**.   
+Package gotojs offers a library for **exposing go-interfaces as JavaScript proxy objects**.
 Therefore package gotojs assembles a JS engine which creates proxy objects as JS code and forwards the calls to them via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
 
-## Requirements
-* go version 1.3
+## Usage
+### Build an API
 
-## Getting started:
-```
-go get github.com/sebkl/gotojs
-```
+Define the Service as a ``struct`` and add the methods.
+```go
+type MyService struct {
+}
 
-Once installed a simple service "hello.go" can exposed as follows:
-```
-package main
-
-import(
-        . "github.com/sebkl/gotojs"
-)
-
-func main() {
-        fe := NewFrontend()
-        fe.ExposeFunction(func (name string) string { return "Hello " + name + "!" },"Sample","Hello")
-        fe.Start(":8080")
+func (s MyService) Echo(in string) string {
+ return in
 }
 ```
-Run the service:
+
+Initialize the gotojs engine and the service itself:
+```go
+fe := NewFrontend()
+se := MyService{}
 ```
-go run hello.go
+*The [frontend](http://godoc.org/github.com/sebkl/gotojs#Frontend) may be initialized with further parameters that affect its way working.*
+
+Expose the service methods under a given name (context: `myservice`)
+```go
+fe.ExposeInterface(se,"myservice")
 ```
-And query it as follows:
+*A wide range of further [exposure methods](http://godoc.org/github.com/sebkl/gotojs#Frontend) are supported such as exposing entire interfaces, sets of interface methods, single functions or just properties.*
+
+Launch the server at web context `"/"` and listen on port `8080`:
+```go
+fe.Start(":8080","/myapp")
 ```
-curl "http://localhost:8080/gotojs/Sample/Hello?name=Dude"
-"Hello Dude!"
+*The [frontend](http://godoc.org/github.com/sebkl/gotojs#Frontend) itself implements the http handler interface `ServeHTTP` and thus can be easily integrated in existing environments*
+
+### Client side
+For accessing the JavasScript bindings, the engine has to be loaded first:
+```html
+<script src="/myapp/gotojs"></script>
+```
+Once loaded each exposed function can be directly invoked in the JavaScript code, whereby the last argument is always the asynchronous data handler callback:
+```javascript
+GOTOJS.myservice.Echo("Hello World!",function(d) { console.log(d); })
 ```
 
-#### Google App Engine Example:
+Each function or method is actually exposed as `/context/interface/method`:
 ```
+#> curl "http://localhost:8080/myapp/myservice/Echo?p=Hello"
+"Hello"
+
+#> curl "http://localhost:8080/myapp/myservice/Echo/World"
+"World"
+```
+
+A golang based client implementation:
+```go
+client := NewClient("http://localhost:8080/myapp")
+ret,err := client.Invoke("myservice","Echo","Hello World!")
+```
+
+### Further Features
+Expose static documents such as html and css files:
+```go
+fe.EnableFileServer("local/path/to/htdocs","/files")
+```
+*This can be used to expose also the web application frontend.*
+
+
+*More to be listed here: *
+* *More complex data structures and converters*
+* *Filtering*
+* *Injections*
+* *Binary content*
+* *Remote bindings*
+* *Data streams*
+* *Error handling*
+
+
+## Examples
+
+A list of more comprehensive examples can be found below:
+
+1. Basic [function exposure](https://github.com/sebkl/gotojs/blob/master/example_test.go)
+2. Basic [interface exposure](https://github.com/sebkl/gotojs/blob/master/example_interface_test.go)
+3. A simple [web application](https://github.com/sebkl/gotojs/blob/master/example_fileserver_test.go)
+4. Dealing with [sessions](https://github.com/sebkl/gotojs/blob/master/example_sessions_test.go)
+4. Inline [exposures](https://github.com/sebkl/gotojs/blob/master/example_static_test.go)
+
+*More to come...*
+
+#### *Google App Engine* Example:
+```go
 package frontend
 
 import (
@@ -88,15 +143,18 @@ func init() {
 ```
 Which actually implements a simple HTTP Trace service for demonstration purposes.
 
-#### Generate application base:
-For a quick example application follow these steps
+#### Generate an application base:
+For a quick example application including predefined templates and javascript libraries a builtin tool may be used:
 ```
 go get github.com/sebkl/gotojs/util
 ${GOPATH}/bin/util example ${GOPATH}/www
 ```
 
-Please keep in mind, that the example application `${GOPATH}/www/app.go` is intended to show some features. After playing around with it you should create your own !
-
+## Requirements
+Gotojs requires
+* go version >= 1.3
+since some reflection features are used from package `reflect` that have been added in 1.3
+Please keep in mind, that the example application `${GOPATH}/www/app.go` is intended to show some basic features.
 
 ## Documentation
 The go documentation of the gotojs package is complete and includes some additional examples for various use cases.
@@ -129,5 +187,4 @@ v0.10.20
 ```
 
 If these are not available, please try to install at least the above listed version. The nodejs stuff is necessary
-to perform the go unit tests.    
-
+to perform the go unit tests.

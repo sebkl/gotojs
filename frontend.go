@@ -59,16 +59,16 @@ const (
 
 // Identifier of initialization parameter
 const (
-	P_BASEPATH = iota
-	P_EXTERNALURL = iota
-	P_NAMESPACE = iota
-	P_PUBLICDIR = iota
-	P_CONTEXT = iota
-	P_LISTENADDR = iota
-	P_PUBLICCONTEXT = iota
-	P_APPLICATIONKEY = iota
-	P_FLAGS = iota
-	P_COOKIENAME = iota
+	P_BASEPATH	= "basepath"
+	P_EXTERNALURL	= "eternalurl"
+	P_NAMESPACE	= "namespace"
+	P_PUBLICDIR	= "pubdir"
+	P_CONTEXT	= "context"
+	P_LISTENADDR	= "addr"
+	P_PUBLICCONTEXT = "pubcontext"
+	P_APPLICATIONKEY = "appkey"
+	P_FLAGS		= "flags"
+	P_COOKIENAME	= "cookie"
 )
 
 // Internally used constants and default values
@@ -90,7 +90,7 @@ const (
 	DefaultBasePath = "."
 	DefaultCookieName = "gotojs"
 	DefaultCookiePath = "/gotojs"
-	DefaultPlatform = "jquery"
+	DefaultPlatform = "web"
 	DefaultMimeType = "application/json"
 	DefaultHeaderCRID = "x-gotojs-crid"
 	DefaultHeaderError = "x-gotojs-error"
@@ -196,9 +196,6 @@ type Frontend struct {
 
 //Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
 var encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+")
-
-//Parameter type allows to define mutliple configuration parameters.
-type Parameters map[int]string
 
 //Properties are generic string string maps used for a user session.
 type Properties map[string]string
@@ -368,7 +365,7 @@ func (c *HTTPContext) CRID() string {
 //
 // 3) The base path where to look for template and library subdirectories
 //func NewFrontend(flags int,args ...string) (*Frontend){
-func NewFrontend(args ...Parameters) (*Frontend){
+func NewFrontend(args ...Properties) (*Frontend){
 	f := Frontend{
 		backend: newBackend(),
 		ServeMux: http.NewServeMux(),
@@ -612,7 +609,7 @@ func (f *Frontend) engineCacheKey(url *url.URL,platform string) (key string, rur
 	switch platform {
 		case "nodejs":
 			key = fmt.Sprintf("%s.%s%s",url.Scheme,url.Host,f.Context())
-		case "jquery":
+		case "web":
 			if f.extUrl != nil {
 				rurl = f.extUrl.String()
 			} else {
@@ -992,12 +989,12 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 			//Check if binding exists
 			if b,found := f.Binding(elems[0],elems[1]); found {
 				//Take paremeters from path
-				args := sAToIA(elems[2:]...)
+				args := SAToIA(elems[2:]...)
 
 				//Check if the query string contains parameters
 				if vals,err := url.ParseQuery(r.URL.RawQuery); err == nil {
 					for _,v := range vals {
-						args = append(args,sAToIA(v...)...)
+						args = append(args,SAToIA(v...)...)
 					}
 				}
 

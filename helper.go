@@ -96,7 +96,7 @@ func Decrypt(in,  key []byte) []byte {
 }
 
 //sToIArray is an string var args to interface{} array converter.
-func sAToIA(args ...string) (ret []interface{}) {
+func SAToIA(args ...string) (ret []interface{}) {
 	ret = make([]interface{},len(args))
 	for i,v := range args {
 		ret[i] = v

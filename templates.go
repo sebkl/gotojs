@@ -6,18 +6,18 @@ type Template struct {
 	Libraries []string
 }
 
-//Templates per engine (jquery, nodejs) etc
+//Templates per engine (web, nodejs) etc
 type Templates map[string]*Template
 
 // DefaultTemplates returns the collection of internal Javascript templates for the generation of the JS engine.
 func DefaultTemplates() (ret Templates) {
 	ret = make(Templates)
-	ret["jquery"] = &defaultTemplate
+	ret["web"] = &defaultTemplate
 	ret["nodejs"] = &defaultNodeJSTemplate
 	return
 }
 
-var Platforms = []string{"jquery","nodejs"}
+var Platforms = []string{"web","nodejs"}
 
 var defaultTemplate = Template {
 	HTTP:`
@@ -252,7 +252,8 @@ var {{.NS}} = {{.NS}} || {};
 	return {{.NS}}.{{.IN}}.proxy.buildGetUrl("{{.IN}}","{{.MN}}",args);
 };
 `,
-	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }
+	//Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }
+	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"} }
 
 var defaultNodeJSTemplate = Template{
 	HTTP: `

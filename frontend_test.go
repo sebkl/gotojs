@@ -26,7 +26,7 @@ var frontend *Frontend
 
 func TestInitialization(t *testing.T) {
 	frontend = NewFrontend(
-		Parameters{
+		Properties{
 			P_FLAGS: Flag2Param(F_VALIDATE_ARGS | F_ENABLE_ACCESSLOG),
 			P_NAMESPACE: "PROXY",
 			P_EXTERNALURL: "http://localhost:8786/gotojs",

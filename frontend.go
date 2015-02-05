@@ -129,18 +129,13 @@ func (b *BinaryContent) MimeType() string {
 	return b.Request.Header.Get(CTHeader)
 }
 
-
-
 func (b *BinaryContent) Read(p []byte) (n int, err error) {
 	return b.Request.Body.Read(p)
 }
 
-
 func (b *BinaryContent) Close() error {
 	return b.Request.Body.Close()
 }
-
-
 
 func NewBinaryContent(req *http.Request) (ret *BinaryContent) {
 	if req.Body != nil {
@@ -257,6 +252,11 @@ func (s *Session) Get(key string) string{
 	return s.Properties[key]
 }
 
+// Delete deletes the named property value if existing.
+func (s *Session) Delete(key string) {
+	delete(s.Properties,key)
+}
+
 // Flush updates the cookie on client side if it was changed.
 // In order to do so it sets the "Set-Cookie" header on the http
 // response
@@ -329,6 +329,7 @@ type HTTPContext struct{
 	Response http.ResponseWriter
 	ErrorStatus int
 	ReturnStatus int
+	Frontend *Frontend
 }
 
 // Session tries to extract a session from the HTTPContext.
@@ -428,6 +429,8 @@ func NewFrontend(args ...Properties) (*Frontend){
 
 	//Session is always available if request (by method parameter), dummy, will never be used
 	f.SetupGlobalInjection(&Session{})
+
+	f.SetupGlobalInjection(f)
 
 	// BinaryContent may be nil
 	var bc *BinaryContent = nil
@@ -945,6 +948,7 @@ func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindi
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
 //	"PUT":  Same as get but allows binary content in the body.
 func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
+	Log("REQUEST","-",r.URL.Path)
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)
 	crid := DefaultCRID
@@ -973,6 +977,11 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	}()
 
 	httpContext = f.HTTPContextConstructor(r,w)
+
+	if httpContext.Frontend == nil {
+		httpContext.Frontend = f
+	}
+
 	if crid = httpContext.Request.Header.Get(DefaultHeaderCRID); len(crid) == 0 {
 		crid = DefaultCRID
 	}

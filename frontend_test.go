@@ -11,6 +11,7 @@ import (
 	"log"
 	"strconv"
 	. "github.com/sebkl/gotojs/client"
+	"time"
 )
 
 const (
@@ -521,6 +522,31 @@ func TestClient(t *testing.T) {
 	if pi,ok := p.(float64); !(ok || pi != 1000)  {
 		t.Errorf("Client call failed: %d/%d",int(pi),1000)
 	}
+}
+
+func TestParallelClients(t *testing.T) {
+	ret := 0;
+	frontend.ExposeFunction(func() {
+		ret++
+		time.Sleep(time.Second * 5)
+	},"ServerTest","Sleep")
+
+
+	for i:=0;i <5; i++ {
+		go func() {
+			c := NewClient("http://localhost:8786/gotojs")
+			c.Invoke("ServerTest","Sleep")
+		}()
+		time.Sleep(10*time.Millisecond)
+	}
+
+	time.Sleep(100*time.Millisecond)
+
+	if ret != 5 {
+		t.Errorf("No parallel execution: %d/%d",ret,5)
+	}
+
+	frontend.RemoveInterface("ServerTest")
 }
 
 func TestObjectCall(t *testing.T) {

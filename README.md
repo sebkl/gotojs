@@ -69,7 +69,7 @@ fe.EnableFileServer("local/path/to/htdocs","/files")
 *This can be used to expose also the web application frontend.*
 
 
-*More to be listed here: *
+*More to be listed here*
 * *More complex data structures and converters*
 * *Filtering*
 * *Injections*
@@ -93,57 +93,29 @@ A list of more comprehensive examples can be found below:
 
 #### *Google App Engine* Example:
 ```go
-package frontend
+package gaeexample
 
 import (
 	. "github.com/sebkl/gotojs"
-	"net/http"
-	"appengine"
-	"appengine/urlfetch"
+	. "github.com/sebkl/gotojs/gae"
 )
-
-//Define the serve "Trace" with one method: "Echo"
-type Trace struct {
-}
-func (t *Trace) Echo(ac *GAEContext,c *HTTPContext) (ret map[string]interface{}) {
-	ret = make(map[string]interface{})
-	ret["Header"] = c.Request.Header
-	ret["Source"] = c.Request.RemoteAddr
-	ret["GAEAppId"] = appengine.AppID(*ac)
-	ac.Debugf("Echo called.")
-	return
-}
-
-// Google App Engine context wrapper.
-type GAEContext struct {appengine.Context}
-
-// Make sure the context is always injected.
-func GAEContextInjector(b *Binding,hc *HTTPContext, injs Injections) bool {
-	if hc != nil {
-		c := appengine.NewContext(hc.Request)
-		injs.Add(&GAEContext{c})
-	}
-	return true
-}
 
 func init() {
 	frontend := NewFrontend()
-	frontend.HTTPContextConstructor = func(req *http.Request, res http.ResponseWriter) *HTTPContext {
-		ret := NewHTTPContext(req,res)
-		c := appengine.NewContext(req)
-		ret.Client = urlfetch.Client(c) /* Allows us to specify our own http.Client impl. */
-		return ret
+
+	/* Define function that just returns all header of a incoming http request */
+	f:= func (c *gae.GAEContext) map[string][]string {
+		/* GAEContext is injected by the gae integration package. */
+		return c.HTTPContext.Request.Header
 	}
 
-	frontend.ExposeInterface(&Trace{}).
-		AddInjection(&GAEContext{}).
-		If(AutoInjectF(GAEContextInjector))
+	/* Expose/bind function: */
+	frontend.ExposeFunction(f,"EchoService","Header")
 
-	handler := frontend.Setup() // Returns just the http handler without starting a standalone server.
-	http.Handle("/", handler)
+	SetupAndStart(frontend)
 }
 ```
-Which actually implements a simple HTTP Trace service for demonstration purposes.
+Which actually implements a simple HTTP Trace service (@ /gotojs/EchoService/Header) for demonstration purposes.
 
 #### Generate an application base:
 For a quick example application including predefined templates and javascript libraries a builtin tool may be used:

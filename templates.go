@@ -34,6 +34,7 @@ var {{.NS}} = {{.NS}} || {
 					"Content-Type": imt
 				},
 				data: data,
+				processData: (method != "PUT"),
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
 					if (typeof(d) =='string' && mt != "{{.CT}}") {
@@ -112,11 +113,12 @@ var {{.NS}} = {{.NS}} || {};
 			}
 
 			if (args.length > 0) {
-				url += "?" + args.join("&p=");
+				url += "?p=" + args.join("&p=");
 			}
 
 			data = bin;
 			mt = mt || "application/octet-stream";
+
 			method = "PUT"
 		} else {
 			data = JSON.stringify(args);
@@ -214,8 +216,8 @@ var {{.NS}} = {{.NS}} || {};
 }
 {{.NS}}.TYPES.INTERFACES.{{.IN}}.prototype = {
 	/* Methods */
-	Call: function(m,args,bin) {
-		return this.proxy.Call(this.name,m,args,bin);
+	Call: function(m,args,bin,mt) {
+		return this.proxy.Call(this.name,m,args,bin,mt);
 	}
 };
 {{.NS}}.{{.IN}} = new {{.NS}}.TYPES.INTERFACES.{{.IN}}()
@@ -227,11 +229,12 @@ var {{.NS}} = {{.NS}} || {};
 	var args = this.proxy.argsToArray(arguments);
 
 	if ("{{.ME}}" == "PUT") {
-		var bin = args.pop();
+		var bin = args.shift();
+		var mt = args.shift();
 {{if .MA}}
 		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
 {{end}}
-		return this.Call("{{.MN}}",args,bin);
+		return this.Call("{{.MN}}",args,bin,mt);
 	} else {
 {{if .MA}}
 		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");

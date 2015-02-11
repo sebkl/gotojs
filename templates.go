@@ -24,9 +24,56 @@ var defaultTemplate = Template {
 /* ### JS/HTTP jquery #### */
 var {{.NS}} = {{.NS}} || {
 	'HTTP': {
-		Call: function(crid,url,i,m,data,imt,callback,method) {
+		'MaxConcurrentCalls': 20,
+		'Backlog': [],
+		'Status': {
+			'open': { },
+			'size': function() {
+				var ret = 0;
+				for (var k in this.open) { ret++; }
+				return ret;
+			},
+			'oncompleted': undefined,
+			'oninprogress': undefined,
+			'onchange': undefined
+		},
+		'Queue': function(r,crid) {
+			var http = this;
+			var status = this.Status;
+			var size = status.size()
+			if (size >= this.MaxConcurrentCalls) {
+				this.Backlog.push(r);
+				return;
+			} 
+
+			r = $.ajax(r);
+			r.CRID = crid;
+
+			if (status.onchange) {
+				status.onchange();
+			}
+			status.open[crid] = r;
+			if (size == 1 && status.oninprogress) {
+				status.oninprogress();
+			}
+			r.complete(function() { 
+				delete status.open[crid]
+				if (status.size() == 0 && status.oncompleted) {
+					status.oncompleted();
+				}
+
+				if (status.change) {
+					status.onchange();
+				}
+
+				if (http.Backlog.length > 0) {
+					http.Queue(http.Backlog.shift(),crid);
+				}
+			});
+		},
+		'Call': function(crid,url,i,m,data,imt,callback,method) {
 			var ret;
-			$.ajax( {
+			this.Queue({
 				type: method || 'POST',
 				url: url,
 				headers: {
@@ -51,7 +98,7 @@ var {{.NS}} = {{.NS}} || {
 				error: function(o,estring,e) {
 					throw /*console.log*/("FAIL : ["+crid+"]["+url+"]["+imt+"][" + o.status + "]["+o.getResponseHeader('x-gotojs-error')+"]["+data+"]\n" + estring + "," + e);
 				}
-			});
+			},crid);
 			return ret;
 		},
 		CRIDHeaderName: "{{.IH}}",

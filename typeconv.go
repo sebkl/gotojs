@@ -4,21 +4,33 @@ import (
 	"time"
 	"fmt"
 	"reflect"
+	"strconv"
 )
 
 //Converter is a function type that converts a source object to a target type.
 type Converter func (o interface{},target reflect.Type) (interface{},error)
 
-//TimeConverter tries to convert an incoming interface to a 
-// local/native time object. Basically an order of formats will be tried here.
+//TimeConverter integrates the ConvertTime function as a converter.
 func TimeConverter(o interface{},t reflect.Type) (ret interface{},err error) {
+	return ConvertTime(o)
+}
+
+// ConvertTime tries to convert an incoming interface to a 
+// local/native time object. Basically an order of formats will be tried here.
+// Generally plain numbers are interpreted as unix timestamp in ms.
+func ConvertTime(o interface{}) (ret time.Time,err error) {
 	if iv,ok := o.(int64); ok {
 		//Assume unix timestamp (ms)
 		return time.Unix(int64(iv/1000),0),nil
 	} else if fv, ok := o.(float64); ok {
 		return time.Unix(int64(fv/1000),0),nil
 	} else if sv, ok := o.(string); ok {
-		layouts := []string { time.RFC3339, time.RFC3339Nano, time.ANSIC, time.UnixDate, time.RubyDate, time.RFC822, time.RFC822Z, time.RFC850, time.RFC1123, time.RFC1123Z, time.Kitchen, time.Stamp, time.StampMilli, time.StampMicro, time.StampNano }
+		//Integer as string
+		if ms,err := strconv.ParseInt(sv,10,63); err == nil {
+			return time.Unix(int64(ms/1000),0),nil
+		}
+
+		layouts := []string { time.RFC3339, time.RFC3339Nano, time.ANSIC, time.UnixDate, time.RubyDate, time.RFC822, time.RFC822Z, time.RFC850, time.RFC1123, time.RFC1123Z, time.Kitchen, time.Stamp, time.StampMilli, time.StampMicro, time.StampNano, "2006-01-02", "2006.01.02", "2006/02/01" }
 
 		for _,lay := range layouts {
 			ret, err = time.Parse(lay,sv)

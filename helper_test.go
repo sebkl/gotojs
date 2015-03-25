@@ -3,6 +3,8 @@ package gotojs
 import(
 	"encoding/base64"
 	"testing"
+	"bytes"
+	"io/ioutil"
 )
 
 func TestArrayContains(t *testing.T) {
@@ -53,5 +55,54 @@ func TestEncryption(t * testing.T) {
 
 	if s != string(dec) {
 		t.Errorf("Decryption failed: source does not match decrypted")
+	}
+}
+
+func TestReaderArray(t *testing.T) {
+	a := bytes.NewBufferString("-A-")
+	b := bytes.NewBufferString("-B-")
+	c := bytes.NewBufferString("-C-")
+
+	ra := NewReaderArray(a,b,c)
+
+	d := bytes.NewBufferString("-D-")
+	ra.Add(d)
+
+	expbuf := "-A--B--C--D-"
+
+	by,err := ioutil.ReadAll(ra)
+	if err != nil {
+		t.Errorf("ReaderArray read failed: %s",err)
+	}
+
+	if string(by) != expbuf {
+		t.Errorf("Concatenation of ReaderArray failed: %s/%s",string(by),expbuf)
+	}
+}
+
+
+func TestReaderArrayBigData(t *testing.T) {
+	a := bytes.NewBufferString("")
+	b := bytes.NewBufferString("")
+	c := bytes.NewBufferString("")
+	tlen := int64(0)
+	astr := "0123456789"
+	ra := NewReaderArray(a,b,c)
+
+	for i:=0;i < 1024 *1024;i++ {
+		a.Write([]byte(astr))
+		b.Write([]byte(astr))
+		c.Write([]byte(astr))
+		tlen += int64(len(ra)*len(astr))
+	}
+
+	by, err := ioutil.ReadAll(ra)
+
+	if err != nil {
+		t.Errorf("ReaderArray read failed: %s",err)
+	}
+
+	if int64(len(by)) != tlen {
+		t.Errorf("ReadArray read incomplete: %d/%d",len(by),tlen)
 	}
 }

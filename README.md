@@ -104,8 +104,8 @@ func init() {
 	frontend := NewFrontend()
 
 	/* Define function that just returns all header of a incoming http request */
-	f:= func (c *gae.GAEContext) map[string][]string {
-		/* GAEContext is injected by the gae integration package. */
+	f:= func (c *gae.Context) map[string][]string {
+		/* Context is injected by the gae integration package. */
 		return c.HTTPContext.Request.Header
 	}
 

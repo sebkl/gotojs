@@ -131,6 +131,9 @@ var {{.NS}} = {{.NS}} || {};
 		},
 		base64Encode: function(a) {
 			return btoa(JSON.stringify(a));
+		},
+		escapeSelector: function(id) {
+			return id.replace( /(:|\.|\[|\]|,|=)/g, "\\$1" );
 		}
 	};
 

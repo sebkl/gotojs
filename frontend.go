@@ -190,7 +190,7 @@ type Frontend struct {
 }
 
 //Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
-var encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+")
+var Encoding = base64.NewEncoding("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+")
 
 //Properties are generic string string maps used for a user session.
 type Properties map[string]string
@@ -217,7 +217,7 @@ func NewSession() *Session {
 // SessionFromCookie reads a session object from the cookie.
 func SessionFromCookie(cookie *http.Cookie,key []byte) *Session{
 	// Base64 decode
-	raw,err := encoding.DecodeString(cookie.Value)
+	raw,err := Encoding.DecodeString(cookie.Value)
 	if err != nil {
 		panic(errors.New(fmt.Sprintf("Could not decode (base64) session: %s",err.Error())))
 	}
@@ -255,6 +255,7 @@ func (s *Session) Get(key string) string{
 // Delete deletes the named property value if existing.
 func (s *Session) Delete(key string) {
 	delete(s.Properties,key)
+	s.dirty = true
 }
 
 // Flush updates the cookie on client side if it was changed.
@@ -291,7 +292,7 @@ func (s *Session) Cookie(name,path string, key []byte) *http.Cookie {
 
 	// Encrypt and base64 encoding:
 	c.Name = name
-	c.Value = encoding.EncodeToString(Encrypt(fbuf.Bytes(),key))
+	c.Value = Encoding.EncodeToString(Encrypt(fbuf.Bytes(),key))
 	c.Path = path
 	return c
 }

@@ -42,7 +42,7 @@ func Log(t string,args ...string) {
 	log.Printf("[%s]%d|%s",t,runtime.NumGoroutine(),strings.Join(args,"|"))
 }
 
-// generateKey generates a random application key.
+// GenerateKey generates a random application key.
 func GenerateKey(size int) (ba []byte) {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	ba = make([]byte,size)

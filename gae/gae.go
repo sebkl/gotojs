@@ -111,7 +111,6 @@ func NewBaseModuleController(f *Frontend, cons ...ModuleController) *BaseModuleC
 	return ret
 }
 
-
 func SetupAndStart(f *Frontend,cons ...ModuleController) {
 	mc :=NewBaseModuleController(f,cons...)
 	f.Setup()

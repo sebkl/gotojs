@@ -134,6 +134,11 @@ var {{.NS}} = {{.NS}} || {};
 		},
 		escapeSelector: function(id) {
 			return id.replace( /(:|\.|\[|\]|,|=)/g, "\\$1" );
+		},
+		queryParameter: function(name) {
+			name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+			var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"), results = regex.exec(location.search);
+			return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
 		}
 	};
 

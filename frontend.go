@@ -1008,8 +1008,8 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 					}
 				}
 
-				//Parameter in json body are only excepted for POST calls
-				if ct := httpContext.Request.Header.Get(CTHeader); ct == DefaultMimeType && r.Method == "POST" {
+				//Parameter in json body are only accepted for POST calls and ContentType "application/json"
+				if ct := httpContext.Request.Header.Get(CTHeader); strings.HasPrefix(ct,DefaultMimeType) && r.Method == "POST" {
 					dec:=json.NewDecoder(r.Body)
 					var i []interface{}
 					if e:= dec.Decode(&i); e != nil {

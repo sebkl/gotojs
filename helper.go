@@ -1,6 +1,5 @@
 package gotojs
 
-
 //The functions provided in helper.go are supposed to be extracted to a dedicated 
 //package or repository.
 
@@ -140,6 +139,8 @@ func ConvertTime(o interface{}) (ret time.Time,err error) {
 	return
 }
 
+//ReaderArray represents a vector of queued readers. Each reader will be consumed in order and
+// closed if no bytes are read anymore.
 type ReaderArray []io.Reader
 
 //NewReaderArray creates a new ReaderArray. It is an equivalent to
@@ -155,7 +156,6 @@ func (r *ReaderArray) Add(rd io.Reader) { *r = append(*r,rd) }
 func (r ReaderArray) Read(p []byte) (n int, err error) {
 	l := len(p)
 	i := 0
-
 
 	//TODO: simplify
 	for ;n < l && i < len(r);i++ {
@@ -187,5 +187,3 @@ func (r ReaderArray) Close() (err error) {
 	}
 	return
 }
-
-

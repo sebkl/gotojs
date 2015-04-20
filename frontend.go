@@ -104,6 +104,7 @@ const (
 	tokenArgumentsString = "AS"
 	tokenValidateArguments = "MA"
 	tokenHttpMethod = "ME"
+	tokenHasBinary = "BIN"
 	tokenHeaderCRID = "IH"
 	tokenContentType = "CT"
 	tokenCRIDLength = "CL"
@@ -122,7 +123,7 @@ type Binary interface {
 	MimeType() string
 }
 
-//BinaryContent is an internal implementation to wrap a PUT/POST call as a Binary interface
+//BinaryContent is an internal implementation to wrap a POST call as a Binary interface
 type BinaryContent struct { *http.Request }
 
 func (b *BinaryContent) MimeType() string {
@@ -733,21 +734,21 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 				bi,_ := b.Binding(in,m)
 				vs:= bi.ValidationString()
 
-				//Check if binary content is expected. IN this case the PUT method is used.
-				meth := "POST"
+				rbc := ""
 				if receivesBinaryContent(bi) {
-					meth = "PUT"
+					rbc = "true"
 				}
 
 				methodParams := MapAppend(map[string]string{
 					tokenMethodName: m,
-					tokenHttpMethod: meth,
+					tokenHttpMethod: "POST",
+					tokenHasBinary: rbc,
 					tokenArgumentsString: vs},interfaceParams)
 				b.template[p].Lookup(MethodTemplate).Execute(minbuf,methodParams)
 			}
 		}
 
-		//Minification
+		//Minify
 		if (b.flags & F_ENABLE_MINIFY) > 0 {
 			buf.Write(Minify(c.Client,minbuf.Bytes()))
 		} else {
@@ -761,7 +762,6 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 	//io.WriteString(out,b.cache.engine)
 	out.Write([]byte(b.cache[ckey].engine))
 }
-
 
 //Context gets or sets the gotojs path context. This path element defines
 //how the engine code where the engine js code is served.
@@ -947,7 +947,6 @@ func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindi
 //		i.e "/gotojs/Test/Hello?p=My&x=Name&z=is&p=Earl" would invoke the signature
 //		func (string,string,string,String).
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
-//	"PUT":  Same as get but allows binary content in the body.
 func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	Log("REQUEST","-",r.URL.Path)
 	mt := DefaultMimeType

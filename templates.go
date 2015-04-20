@@ -81,7 +81,7 @@ var {{.NS}} = {{.NS}} || {
 					"Content-Type": imt
 				},
 				data: data,
-				processData: (method != "PUT"),
+				processData: (imt == "{{.CT}}"),
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
 					if (typeof(d) =='string' && mt != "{{.CT}}") {
@@ -173,8 +173,6 @@ var {{.NS}} = {{.NS}} || {};
 
 			data = bin;
 			mt = mt || "application/octet-stream";
-
-			method = "PUT"
 		} else {
 			data = JSON.stringify(args);
 			mt = "{{.CT}}";
@@ -282,20 +280,16 @@ var {{.NS}} = {{.NS}} || {};
 
 {{.NS}}.{{.IN}}.{{.MN}} = function() {
 	var args = this.proxy.argsToArray(arguments);
+	var bin, mt;
+{{if .BIN}}
+		bin = args.shift();
+		mt = args.shift();
+{{end}}
 
-	if ("{{.ME}}" == "PUT") {
-		var bin = args.shift();
-		var mt = args.shift();
 {{if .MA}}
 		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
 {{end}}
 		return this.Call("{{.MN}}",args,bin,mt);
-	} else {
-{{if .MA}}
-		this.proxy.assertArgs("{{.IN}}","{{.MN}}",args,"{{.AS}}");
-{{end}}
-		return this.Call("{{.MN}}",args);
-	}
 };
 
 {{.NS}}.{{.IN}}.{{.MN}}.getValidationString = function() {

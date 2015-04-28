@@ -102,7 +102,7 @@ type Injections map[reflect.Type]interface{}
 
 // Mapping of kind to char for method/function signature validation string.
 var kindMapping = map[reflect.Kind]byte{
-	reflect.Bool: 'i',
+	reflect.Bool: 'b',
 	reflect.Int: 'i',
 	reflect.Int8: 'i',
 	reflect.Int16: 'i',

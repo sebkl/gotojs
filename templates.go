@@ -248,7 +248,13 @@ var {{.NS}} = {{.NS}} || {};
 					break;
 				case 'f':
 					if (!(typeof o === 'number' && !( o & 1 == 0))) {
-						throw mes + "an float.";
+						throw mes + "a float.";
+					}
+					break;
+
+				case 'b':
+					if (!(typeof o === 'boolean')) {
+						throw mes + "a boolean.";
 					}
 					break;
 				default: 

@@ -73,6 +73,7 @@ var {{.NS}} = {{.NS}} || {
 		},
 		'Call': function(crid,url,i,m,data,imt,callback,method) {
 			var ret;
+			var tobj = { crid: crid, data: data, interface: i, method: m};
 			this.Queue({
 				type: method || 'POST',
 				url: url,
@@ -91,7 +92,7 @@ var {{.NS}} = {{.NS}} || {
 					}
 
 					if (callback) {
-						callback(ret);
+						callback.bind(tobj)(ret);
 					} 
 				},
 				async: callback !== undefined,
@@ -99,7 +100,12 @@ var {{.NS}} = {{.NS}} || {
 					throw /*console.log*/("FAIL : ["+crid+"]["+url+"]["+imt+"][" + o.status + "]["+o.getResponseHeader('x-gotojs-error')+"]["+data+"]\n" + estring + "," + e);
 				}
 			},crid);
-			return ret;
+
+			if (callback) {
+				return tobj;
+			} else {
+				return ret;
+			}
 		},
 		CRIDHeaderName: "{{.IH}}",
 		GOTOJSContentType: "{{.CT}}"
@@ -321,9 +327,9 @@ var {{.NS}} = {{.NS}} || {
 		URL: "{{.BC}}",
 		Jar: null,
 		Call: function(crid,url,i,m,data,imt,callback,method) {
-			var ret = { state: "loading",data: null };
+			var ret = { state: "loading", crid: crid, data: data, interface: i, method: m, result: null}
 			if (callback === undefined) {
-				callback = function(d) { console.log(d); ret.data = d;ret.state="finished";}
+				callback = function(d) { console.log(d); ret.result = d;ret.state="finished";}
 			}
 			this.Request({
 				uri: this.URL + "/" + i + "/" + m,
@@ -345,10 +351,11 @@ var {{.NS}} = {{.NS}} || {
 						throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
 					}
 				} else {
-					ret = d;
+					ret.result = d;
 				}
-				callback(ret);
+				callback.bind(ret)(ret.result);
 			});
+
 			return ret;
 		},
 		CRIDHeaderName: "{{.IH}}",

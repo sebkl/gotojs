@@ -66,7 +66,7 @@ Expose static documents such as html and css files:
 ```go
 fe.EnableFileServer("local/path/to/htdocs","/files")
 ```
-*In this way it is supposed to make the Document root available which contains the main web-application files. *
+*In this way it is supposed to make the Document root available which contains the main web-application files.*
 
 Error handling:
 ```go
@@ -83,9 +83,9 @@ fe.ExposeFunction(func(hc *HTTPContext) { hc.Errorf(404,"To be Implemented") },"
 * *Error handling*
 
 ### GO vs JS signatures
-The bwlo map shows how the go-interfaces are being called using the JS proxy object.
+The below map shows how exposed go-interfaces are being called using the JS proxy object.
 
-| GO | JS | Description |
+| GO implementation | JS call| Description |
 |-----|-----|-----|
 | ```func Foo(a,b int) (c int)``` | ```var c = GOTOJS.Service.Foo(a,b);``` | Synchronous call **(deprecated)**  |
 | ```func Foo(a,b int) (c int)``` | ```GOTOJS.Service.Foo(a,b,function(c) { ... });``` |  Asynchronous call: The callback is always the last argument of the method call.|
@@ -99,7 +99,7 @@ A list of more comprehensive examples can be found below:
 1. Basic [function exposure](https://github.com/sebkl/gotojs/blob/master/example_test.go)
 2. Basic [interface exposure](https://github.com/sebkl/gotojs/blob/master/example_interface_test.go)
 3. A simple [web application](https://github.com/sebkl/gotojs/blob/master/example_fileserver_test.go)
-4. Dealing with [sessions](https://github.com/sebkl/gotojs/blob/master/example_sessions_test.go)
+4. Dealing with [sessions](https://github.com/sebkl/gotojs/blob/master/example_session_test.go)
 5. Inline [exposures](https://github.com/sebkl/gotojs/blob/master/example_static_test.go)
 6. [Handler](https://github.com/sebkl/gotojs/blob/master/example_binary_test.go) for binary POST requests
 7. Standard [handler exposures](https://github.com/sebkl/gotojs/blob/master/example_handlerbinding_test.go)

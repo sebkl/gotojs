@@ -86,7 +86,7 @@ fe.ExposeFunction(func(hc *HTTPContext) { hc.Errorf(404,"To be Implemented") },"
 The bwlo map shows how the go-interfaces are being called using the JS proxy object.
 
 | GO | JS | Description |
-|-|-|-|
+|-----|-----|-----|
 | ```func Foo(a,b int) (c int)``` | ```var c = GOTOJS.Service.Foo(a,b);``` | Synchronous call **(deprecated)**  |
 | ```func Foo(a,b int) (c int)``` | ```GOTOJS.Service.Foo(a,b,function(c) { ... });``` |  Asynchronous call: The callback is always the last argument of the method call.|
 | ```func Foo(postBody *BinaryContent) (b int)``` | ```GOTOJS.Service.Foo(postBody,mimetype,function(b) { ... });``` | Call with plain untouched post body data.|

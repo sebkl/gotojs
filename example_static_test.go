@@ -8,9 +8,9 @@ import (
 	"bytes"
 )
 
-func ExampleFrontend_static() {
-	// Initialize the frontend.
-	frontend := NewFrontend()
+func ExampleBindingContainer_static() {
+	// Initialize the container.
+	container := NewContainer()
 
 	// Define the content.
 	index:=`
@@ -22,10 +22,10 @@ func ExampleFrontend_static() {
 </html>`
 
 	// Assign the content to a path.
-	frontend.HandleStatic("/",index,"text/html")
+	container.HandleStatic("/",index,"text/html")
 
 	// Start the server.
-	go func() {log.Fatal(frontend.Start("localhost:8788"))}()
+	go func() {log.Fatal(container.Start("localhost:8788"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

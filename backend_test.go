@@ -2,7 +2,6 @@ package gotojs
 import (
 	"testing"
 	"log"
-	//"fmt"
 )
 
 type TestService struct {
@@ -17,13 +16,12 @@ type TestAttributeService struct {
 	Param int
 }
 
-
 var MyTestService = TestService{param1: 0}
 var MyTestService2 = TestService2{param2: 0}
-var be = newBackend()
+var be = NewContainer()
 
-func (t *TestService) SetAndGetParam(p int)  int	{ /*log.Printf("Invoked on %p",t); */ t.param1 = p; return t.param1}
-func (t *TestService) GetParam() int			{ /* log.Printf("TestService.GetParam() @ %p",t);*/ return t.param1 }
+func (t *TestService) SetAndGetParam(p int)  int	{ t.param1 = p; return t.param1}
+func (t *TestService) GetParam() int			{ return t.param1 }
 func (t *TestService) SetParam(p int)			{ log.Printf("TestService.SetParam(%d) @ %p\n",p,t); t.param1 = p}
 func (t TestService)  SetAndGetParam2(p int)  int	{ t.param1 = p; return t.param1}
 func (t *TestService) InvalidMethod1(p int)  (int,int)	{ return p,0}
@@ -456,5 +454,3 @@ func TestExposeYourself(t *testing.T) {
 		t.Logf("Method: %s",s)
 	}
 }
-
-

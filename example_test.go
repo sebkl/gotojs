@@ -9,8 +9,8 @@ import (
 )
 
 func ExampleFrontend() {
-	// Initialize the frontend.
-	frontend := NewFrontend();
+	// Initialize the container.
+	container := NewContainer();
 
 	// Declare function which needs to be exposed.
 	f:= func ( context *HTTPContext,name string) string {
@@ -21,10 +21,10 @@ func ExampleFrontend() {
 	}
 
 	// Expose the function and name it.
-	frontend.ExposeFunction(f,"Example","Hello")
+	container.ExposeFunction(f,"Example","Hello")
 
 	// Start the server is seperate go routine in parallel.
-	go func() {log.Fatal(frontend.Start("localhost:8787"))}()
+	go func() {log.Fatal(container.Start("localhost:8787"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

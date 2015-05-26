@@ -1,6 +1,6 @@
 package gotojs
 
-// Conatins all loaded templates and references to external JS libraries.
+// Contains all loaded templates and references to external JS libraries.
 type Template struct {
 	HTTP,Binding,Interface,Method string
 	Libraries []string
@@ -85,10 +85,16 @@ var {{.NS}} = {{.NS}} || {
 				processData: (imt == "{{.CT}}"),
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
-					if (typeof(d) =='string' && mt != "{{.CT}}") {
+
+					if (mt !="{{.CT}}") {
+						/* Return as STRING */
+						ret = eval('\'' + d + '\'');
+					} else if (typeof(d) =='string') {
+						/* eval and return as JS object */
 						ret = eval('(' + d + ')');
 					} else {
-						ret = d
+						/* return as JS object */
+						ret = d;
 					}
 
 					if (callback) {
@@ -166,7 +172,7 @@ var {{.NS}} = {{.NS}} || {};
 			callback = args.pop();
 		}
 
-		var crid = {{.NS}}.CONST.CHASH + "." + (this.callCounter++);
+		var crid = {{.NS}}.CONST.CHASH + "_" + (this.callCounter++);
 		var data = ""
 		if (bin !== undefined) {
 			for (var i in args) { // Encode parameters
@@ -344,14 +350,17 @@ var {{.NS}} = {{.NS}} || {
 					throw ("FAIL1["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + error);
 				}
 
-				if (typeof(d) =='string' && response.headers["Content-Type"] == "{{.CT}}") {
-					try {
-						ret = eval('(' + d + ')');
-					} catch (e) {
-						throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
+				try {
+					var mt = response.headers["content-type"] ;
+					if (mt != "{{.CT}}") {
+						ret.result = eval('\'' + d + '\'');
+					} else if (typeof(d) =='string') {
+						ret.result = eval('(' + d + ')');
+					} else {
+						ret.result = d;
 					}
-				} else {
-					ret.result = d;
+				} catch (e) {
+					throw ("FAIL2["+crid+"] '" + i + "." + m + "(" + data +")' @ " + url + ":\n" + data + "\n=>" + e +"\n" + d);
 				}
 				callback.bind(ret)(ret.result);
 			});

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strconv"
 	"encoding/json"
-	"time"
+	"net/http"
+	"text/template"
+	"net/url"
 )
 
 const (
@@ -19,66 +21,13 @@ const (
 
 // Filter is a filter function that receives, the binding which is currently being invoked and the 
 // Injection objects of the environment. It returns true if the call and filter chain may proceed.
-// If it returns false, the request has been prohabited or already answered and neither a further
+// If it returns false, the request has been filtered or already answered and neither a further
 // filter nor the real method call will be invoked.
 type Filter func (Binding,Injections) bool
 
-// remoteBinder is a function type that will be invoked for a remote binding.
-type remoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
-
-// bindingInterface declare binding specific methods.
-type bindingInterface interface {
-	invokeI(Injections,[]interface{}) interface{}
-	argCount() int
-	argType(int) reflect.Type
-	signature([]reflect.Type) string
-	base() *binding
-}
-
-// backend consits of the binding container as well as some administrative attributes like revision and injection references.
-type backend struct {
-	bindingContainer
-	globalInjections Injections
-	revision uint64
-	converterRegistry map[reflect.Type]Converter
-}
-
-// binding declares binding type independent attributes
-type binding struct {
-	elemName string
-	interfaceName string
-	injections map[int]reflect.Type
-	singletons Injections
-	filters []Filter
-	backend *backend
-}
-
-type functionBinding struct {
-	binding
-	i interface{}
-}
-
-type attributeBinding struct {
-	binding
-	elemNum int
-	i interface{}
-}
-
-type methodBinding struct {
-	binding
-	elemNum int
-	i interface{}
-}
-
-type remoteBinding struct {
-	binding
-	remoteSignature string
-	i remoteBinder
-}
-
 // Binding is a concrete method binding. It maps a interface and method name to a go object's method.
 // The receiver is stored and in case of a method invocation, the original receiver will be 
-// passed while the method is called. Besides this the a holds the information, which filter are
+// passed while the method is called. Besides this the binding holds the information, which filter are
 // active, which parameter needs to be injected by the InvokeI call or need to be registered as singletons..
 type Binding struct {
 	bindingInterface
@@ -93,12 +42,34 @@ type Interface map[string]Binding
 // Interfaces represents a list or slice of Interfaces including all its bindings.
 type Interfaces []Interface
 
-// bindingContainer represents a container which consists of a set of interface and its bindings
 type bindingContainer map[string]Interface
+
+// BindingContainer represents a container which consists of a set of interfaces and their bindings.
+type BindingContainer struct {
+	bindingContainer
+	globalInjections Injections
+	revision uint64
+	converterRegistry map[reflect.Type]Converter
+	*http.ServeMux //embed http muxer
+	templateSource Templates
+	template map[string]*template.Template
+	namespace string
+	context string
+	extUrl *url.URL
+	templateBasePath string
+	flags int
+	httpd *http.Server
+	addr string
+	cache map[string]*cache
+	publicDir string
+	publicContext string
+	fileServer http.Handler
+	key []byte //key used to encrypt the cookie.
+	HTTPContextConstructor HTTPContextConstructor
+}
 
 // Injections is a container of injection objects sorted by their type.
 type Injections map[reflect.Type]interface{}
-
 
 // Mapping of kind to char for method/function signature validation string.
 var kindMapping = map[reflect.Kind]byte{
@@ -129,28 +100,14 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.Struct: 'o',
 	reflect.UnsafePointer: 'i' }
 
-//newBackend is a constructor for the bindingContainer data structure.
-func newBackend() (backend) {
-	ret := backend{
-		bindingContainer: make(bindingContainer),
-		globalInjections: make(Injections),
-		converterRegistry: make(map[reflect.Type]Converter),
-	}
-
-	ret.RegisterConverter("",StringConverter)
-	ret.RegisterConverter(time.Now(),TimeConverter)
-
-	return ret
-}
-
 //RegisterConverter defines the given converter function for the assigned type.
-func (b backend) RegisterConverter(t interface{}, c Converter) {
+func (b BindingContainer) RegisterConverter(t interface{}, c Converter) {
 	log.Printf("Registering converter for type %s",reflect.TypeOf(t))
 	b.converterRegistry[reflect.TypeOf(t)] = c
 }
 
 // AddInjection adds a singleton injection object for the given binding and declares its type
-// as injection object. It can calso be used to declare a type and in the same step define a 
+// as injection object. It can also be used to declare a type and in the same step define a 
 // default singleton which will be injected in case no further object of this type will is 
 // provided for InvokeI calls.
 func (b Binding) AddInjection(i interface{}) Binding{
@@ -169,58 +126,11 @@ func (b Binding) AddInjection(i interface{}) Binding{
 	return  b
 }
 
-// :-D
-func (b *binding) base() *binding{
-	return b
-}
-
-//InterfaceName returns the name of the interface this binding is assigned to.
-func (b *binding) InterfaceName() string{
-	return b.interfaceName
-}
-
-//MEthodName returns the method name of this binding.
-func (b* binding) MethodName() string{
-	return b.elemName
-}
-
 //S method returns an one element array of this binding.
 func (b Binding) S() (ret Bindings) {
 	ret = make(Bindings,1)
 	ret[0] = b
 	return
-}
-
-// argType is an internally used method that returns the type of i-th binding parameter.
-// The index i does not respect the receiver but includes the injected parameters.
-func (b *attributeBinding) argType(i int) reflect.Type {
-	return reflect.TypeOf(b.i)
-}
-func (b *remoteBinding) argType(i int) reflect.Type {
-	return reflect.TypeOf(b.i).In(i)
-}
-func (b *methodBinding) argType(i int) reflect.Type {
-	t := reflect.TypeOf(b.i)
-	return t.Method(b.elemNum).Type.In(i + 1)
-}
-func (b *functionBinding) argType(i int) reflect.Type {
-	return reflect.TypeOf(b.i).In(i)
-}
-
-// argCount is an internally Function that returns the effective amount of parameters
-// this binding needs. This includes injections and excludes the receiver.
-func (b *attributeBinding) argCount() int {
-	return 0
-}
-func (b *methodBinding) argCount() int {
-	return reflect.TypeOf(b.i).Method(b.elemNum).Func.Type().NumIn() - 1
-}
-func (b *functionBinding) argCount() int {
-	return reflect.TypeOf(b.i).NumIn()
-}
-func (b *remoteBinding) argCount() int {
-	//TODO: check if this is correct ? Statically return 3 ?
-	return reflect.TypeOf(b.i).NumIn()
 }
 
 // parameterTypeArray is an internally used method to get an
@@ -239,28 +149,11 @@ func parameterTypeArray(b bindingInterface ,includeInjections bool) []reflect.Ty
 	return ret[:ri]
 }
 
-// ValidationString generate a string that represents the signature of a method or function. It
-// is used to perform a runtime validation when calling a JS proxy method.
-func (b Binding) ValidationString() (ret string){
-	return b.signature(parameterTypeArray(b,false))
-}
-func (b *binding) signature(a []reflect.Type) (ret string) {
-	ret = ""
-	//TODO: check direct Mapping
-	for _,v := range a {
-		ret += string(kindMapping[v.Kind()])
-	}
-	return
-}
-func (b *remoteBinding) signature(a []reflect.Type) string{
-	return b.remoteSignature
-}
-
 func receivesBinaryContent(b bindingInterface) bool {
 	return countParameterType(b,&BinaryContent{}) > 0
 }
 
-//Signature returns a tring representation of the binding signature.
+//Signature returns a string representation of the binding signature.
 func (b Binding) Signature() (ret string) {
 	ret = b.ValidationString()
 	if receivesBinaryContent(b) {
@@ -269,7 +162,7 @@ func (b Binding) Signature() (ret string) {
 	return
 }
 
-// countParameterType counts the amount of paremter this method
+// countParameterType counts the amount of parameter this method
 // accepts. Usually used to determine whether it takes a certain
 // argument type.
 func countParameterType(b bindingInterface, i interface{}) (ret int) {
@@ -294,7 +187,7 @@ func (bs Bindings) AddInjection(i interface{}) Bindings {
 
 // SetupGlobaleIjection declares a type that will always be injected.
 // This applies for both existing bindings as well as new bindings.
-func (b backend) SetupGlobalInjection(i interface{}) {
+func (b BindingContainer) SetupGlobalInjection(i interface{}) {
 	t := reflect.TypeOf(i)
 	b.globalInjections[t] = i
 	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
@@ -326,94 +219,19 @@ func (bs Bindings) Match(pattern string) Bindings {
 
 // addGlobalInjection adds the global injection types to the given binding.
 func (b Binding) addGlobalInjections() {
-	for _,v := range b.base().backend.globalInjections {
+	for _,v := range b.base().container.globalInjections {
 		b.AddInjection(v)
 	}
 }
 
-// newBinding creates a new binding object that is associated with the given backend.
-// All existing global Injections will be added to this binding.
-func (b *backend) newBinding(in,mn string) (*binding) {
-	_,found := b.Binding(in,mn)
-	if found {
-		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
-	} else {
-		if _,f := b.bindingContainer[in]; !f {
-			im := make(map[string]Binding)
-			b.bindingContainer[in] = im
-		}
-
-		if _,f := b.bindingContainer[in][mn]; !f {
-			r := Binding{}
-			b.bindingContainer[in][mn] = r
-		}
-	}
-	p := &binding{
-		elemName: mn,
-		interfaceName: in,
-		backend: b,
-		singletons: make(Injections),
-		injections: make(map[int]reflect.Type)}
-	return p
-}
-
-//NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *backend) newRemoteBinding(i remoteBinder,sig,in,mn string) (ret Binding) {
-	ret = Binding{bindingInterface: &remoteBinding{
-		binding: *b.newBinding(in,mn),
-		remoteSignature: sig,
-		i: i,
-	}}
-	ret.addGlobalInjections()
-	b.bindingContainer[in][mn] = ret
-	return
-}
-
-//NewMethodBinding creates a new method binding with the given interface and method name, whereby
-// x specifies the x-th method of the given object.
-func (b *backend) newMethodBinding(i interface{},x int,in,mn string) (ret Binding) {
-	ret = Binding{bindingInterface: &methodBinding{
-		binding: *b.newBinding(in,mn),
-		elemNum: x,
-		i: i,
-	}}
-	ret.addGlobalInjections()
-	b.bindingContainer[in][mn] = ret
-	return
-}
-
-//NewFunctionBinding creates a new function binding with the given interface and method name.
-func (b *backend) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
-	ret =  Binding{bindingInterface: &functionBinding{
-		binding: *b.newBinding(in,mn),
-		i: i,
-	}}
-	ret.addGlobalInjections()
-	b.bindingContainer[in][mn] = ret
-	return
-}
-
-//NewAttributeBinding creates a new attribute getter binding whereby x specifies the x-th
-// field of there referenced object.
-func (b *backend) newAttributeBinding(i interface{},x int,in,mn string) (ret Binding) {
-	ret = Binding{bindingInterface: &attributeBinding{
-		binding: *b.newBinding(in,mn),
-		elemNum: x,
-		i: i,
-	}}
-	ret.addGlobalInjections()
-	b.bindingContainer[in][mn] = ret
-	return
-}
-
 // Expose an entire interface. All methods of the given interface will be exposed. THe name of the
 // exposed interface is either taken from type name or could be specified as additional name parameter.
-func (b *backend) ExposeInterface(i interface{},name ...string) (ret Bindings) {
+func (b *BindingContainer) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"",name...)
 }
 
 // ExposeMethod is a convenience method to ExposeMethods for exposing a single method of an interface.
-func (b *backend) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
+func (b *BindingContainer) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"^" + name + "$",target_name...)
 }
 
@@ -451,12 +269,12 @@ func findInterfaceName(i interface{}) (in string){
 
 //ExposeAllAttributes is a convenience method to ExposeAttribute which exposes
 // all public attributes of the given object.
-func (b* backend) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
+func (b* BindingContainer) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
 	return b.ExposeAttributes(i,"",name...)
 }
 
 // ExposeAttributes exposes getter function to all public attributes of the given object.
-func (b* backend) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
+func (b* BindingContainer) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -487,7 +305,7 @@ func (b* backend) ExposeAttributes(i interface{}, pattern string, name ...string
 }
 
 // ExposeMethods exposes the methods of a interface that do match the given regex pattern.
-func (b *backend) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
+func (b *BindingContainer) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -535,7 +353,7 @@ func (b *backend) ExposeMethods(i interface{},pattern string, name ...string) (r
 }
 
 // ExposeFunction exposes a single function. No receiver is required for this binding.
-func (b *backend) ExposeFunction(f interface{}, name ...string) Bindings {
+func (b *BindingContainer) ExposeFunction(f interface{}, name ...string) Bindings {
 	v:= reflect.ValueOf(f)
 	if v.Kind() != reflect.Func {
 		panic(fmt.Errorf("Parameter is not a function. %s/%s",v.Kind().String(),reflect.Func.String()))
@@ -558,14 +376,14 @@ func (b *backend) ExposeFunction(f interface{}, name ...string) Bindings {
 	return pm.S()
 }
 
-///ExposeYourself exposes some administrative and discovery methods of the gotojs backend functionality.
-func (b *backend) ExposeYourself(args ...string) (ret Bindings) {
+///ExposeYourself exposes some administrative and discovery methods of the gotojs container functionality.
+func (b *BindingContainer) ExposeYourself(args ...string) (ret Bindings) {
 	in := DefaultInternalInterfaceName
 	if len(args) > 0 {
 		in = args[0]
 	}
 	ret = make(Bindings,2)
-	ret[0] = b.ExposeFunction(func (b *backend) map[string]string {
+	ret[0] = b.ExposeFunction(func (b *BindingContainer) map[string]string {
 		bs := b.Bindings()
 		ret := make(map[string]string)
 		for _,b := range bs {
@@ -574,7 +392,7 @@ func (b *backend) ExposeYourself(args ...string) (ret Bindings) {
 		return ret
 	},in,"Bindings").AddInjection(b)[0]
 
-	ret[1] = b.ExposeFunction(func (b *backend) []string{
+	ret[1] = b.ExposeFunction(func (b *BindingContainer) []string{
 		return b.InterfaceNames()
 	},in,"Interfaces").AddInjection(b)[0]
 	return
@@ -596,7 +414,7 @@ func (b Binding) ClearFilter() Binding {
 // Remove removes the binding from the binding container.
 func (b Binding) Remove() {
 	bb := b.base()
-	bb.backend.RemoveBinding(bb.interfaceName,bb.elemName)
+	bb.container.RemoveBinding(bb.interfaceName,bb.elemName)
 }
 
 // If sets a filter for all given binding. See type Filter for more information.
@@ -786,7 +604,7 @@ func MergeInjections(inja ...Injections) (ret Injections) {
 
 //convertParameterValue tries to convert the value of the given parameter to the target type.
 //More hi-level calls like strconv may be involved here.
-func (b *backend) convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
+func (b *BindingContainer) convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
 	tk := at.Kind()
 	sk := av.Kind()
 
@@ -847,7 +665,7 @@ func (b *backend) convertParameterValue(av reflect.Value,at reflect.Type) reflec
 	return av.Convert(at) // Try to convert automatically.
 }
 
-//callValuesI compiles the final function or methoad call parameters using the given injections
+//callValuesI compiles the final function or method call parameters using the given injections
 // with respect to the underlying binding type.
 func callValuesI(b bindingInterface,inj Injections, args []interface{}) (ret []reflect.Value) {
 	targetArgCount := b.argCount()
@@ -872,11 +690,11 @@ func callValuesI(b bindingInterface,inj Injections, args []interface{}) (ret []r
 				panic(fmt.Errorf("Invalid parameter count: %d/%d (%d injections applied)",iai,len(args),ic))
 			}
 			av = reflect.ValueOf(args[iai]) // Value object of the current parameter
-			iai++ //procede to next input argument
+			iai++ //proceed to next input argument
 		}
 
-		// Assign final value to final call vectob.
-		ret[ai] = b.base().backend.convertParameterValue(av,at)
+		// Assign final value to final call vector.
+		ret[ai] = b.base().container.convertParameterValue(av,at)
 	}
 
 	if targetArgCount != (iai+ic) {
@@ -897,62 +715,6 @@ func convertReturnValue(iret []reflect.Value) interface{} {
 		case 1:
 			return iret[0].Interface() // Convert return argument to interface{}
 	}
-}
-
-//invokeI is an internally used method to invoke a proxy type binding
-// using the given unjections opjects and binding parameters
-func (b *methodBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	val := reflect.ValueOf(b.i)
-
-	//Sanity check whether binding object is not of kind function.
-	if val.Kind() == reflect.Func {
-		panic(fmt.Errorf("MethodBinding for \"%s.%s\" does not bind an object.",b.interfaceName,b.elemName))
-	}
-
-	av := callValuesI(b,inj,args)
-
-	// Prepend the receiver
-	cav := make([]reflect.Value,len(av)+1)
-	cav[0] = val
-	for i,v := range av {
-		cav[i+1] = v
-	}
-
-	meth := reflect.TypeOf(b.i).Method(b.elemNum).Func
-	return convertReturnValue(meth.Call(cav)) // Call with receiver and consider injected objects.
-}
-
-//invokeI is an internally used method to invoke a function type binding
-// using the given unjections opjects and binding parameters
-func (b *functionBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	val := reflect.ValueOf(b.i)
-
-	// Sanity check whether binding object is actually of kind function
-	if val.Kind() != reflect.Func {
-		panic(fmt.Errorf("FunctionBinding for \"%s.%s\"  does not bind a function.",b.interfaceName,b.elemName))
-	}
-	meth := reflect.ValueOf(b.i)
-
-	av := callValuesI(b,inj,args)
-	return convertReturnValue(meth.Call(av)) // Call with receiver and consider injected objects.
-}
-
-//invokeI is an internally used method to invoke a proxy type binding
-// using the given unjections opjects and binding parameters
-func (b *remoteBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	meth := reflect.ValueOf(b.i)
-
-	//wrap parameters in an []interface{} array
-	aa := make([]interface{},1)
-	aa[0] = args
-
-	av := callValuesI(b,inj,aa) //Imporatent: use args as array parameter (NOT exploded !)
-	return convertReturnValue(meth.Call(av))
-}
-
-//invokeI returns the value of the attribute this binding is refereing.
-func (b *attributeBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	return reflect.ValueOf(b.i).Elem().Field(b.elemNum).Interface()
 }
 
 func (b Binding) InvokeI(ri Injections,args ...interface{}) interface{} {

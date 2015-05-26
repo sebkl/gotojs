@@ -45,23 +45,23 @@ func TestBufferFetch(t *testing.T) {
 			t.Errorf("Not all available entries returned: %d/%d",l,b.size)
 		}
 
-		if mb[0].id > mb[l - 1].id {
-			t.Errorf("Invalid order of ids in Fetch result: %d >= %d",mb[0].id,mb[l - 1].id)
+		if mb[0].Id > mb[l - 1].Id {
+			t.Errorf("Invalid order of ids in Fetch result: %d >= %d",mb[0].Id,mb[l - 1].Id)
 		}
 
-		sb := b.Fetch(mb[0].id)
+		sb := b.Fetch(mb[0].Id)
 		if len(sb) != l {
 			t.Errorf("Specific fetch must return same amount of messages than complete fetch %d != %d",len(sb),l)
 		} else {
 			for x:=0; x < l; x++ {
-				//t.Logf("%d %d %d %d",x,l,mb[0].id,len(sb))
-				if sb[x].id != mb[x].id {
-					t.Errorf("Specific Fetch does not equal complete Fetch: [%d] %d != %d",x,sb[x].id,mb[x].id)
+				//t.Logf("%d %d %d %d",x,l,mb[0].Id,len(sb))
+				if sb[x].Id != mb[x].Id {
+					t.Errorf("Specific Fetch does not equal complete Fetch: [%d] %d != %d",x,sb[x].Id,mb[x].Id)
 				}
 			}
 		}
 
-		//t.Logf("id %d ... %d",mb[0].id,mb[l -1].id)
+		//t.Logf("id %d ... %d",mb[0].Id,mb[l -1].Id)
 		b.Enqueue(testMessage())
 	}
 }
@@ -74,7 +74,7 @@ func TestBufferFetchSequence(t *testing.T) {
 			b.Enqueue(testMessage())
 		}
 		mes := b.Fetch(id)
-		id = mes[len(mes) - 1].id + 1
+		id = mes[len(mes) - 1].Id + 1
 
 	}
 
@@ -137,10 +137,10 @@ func BenchmarkBuffer (b *testing.B) {
 			for ;id < ID(b.N);  {
 				fr := NewFetchRequest(&StreamSession{Next: id})
 				mes := fetcher.Fetch(fr)
-				if mes[0].id != id {
-					b.Logf("#%d Leak detected %d %d",p,mes[0].id,id)
+				if mes[0].Id != id {
+					b.Logf("#%d Leak detected %d %d",p,mes[0].Id,id)
 				}
-				id = mes[len(mes) - 1].id + 1
+				id = mes[len(mes) - 1].Id + 1
 			}
 			log.Printf("Final: %d",id)
 			done <- 1

@@ -18,17 +18,17 @@ func (s *Service) Hello(name string) string {
 	return fmt.Sprintf("Hello %s, how are you ? Regards, %s.", name,s.name)
 }
 
-func ExampleFrontend_interface() {
-	// Initialize the frontend.
-	frontend := NewFrontend()
+func ExampleBindingContainer_interface() {
+	// Initialize the container.
+	container := NewContainer()
 
 	service := Service{name: "TestService"}
 
 	// Expose the funcation and name it.
-	frontend.ExposeInterface(service)
+	container.ExposeInterface(service)
 
 	// Start the server is seperate go routine in parallel.
-	go func() {log.Fatal(frontend.Start("localhost:8790"))}()
+	go func() {log.Fatal(container.Start("localhost:8790"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

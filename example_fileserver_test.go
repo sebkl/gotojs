@@ -10,9 +10,9 @@ import (
 	"io/ioutil"
 )
 
-func ExampleFrontend_fileserver() {
-	// Initialize the frontend. 
-	frontend := NewFrontend()
+func ExampleBindingContainer_fileserver() {
+	// Initialize the container. 
+	container := NewContainer()
 
 	// Define the index.html and write it to the public dir:
 	index:=`
@@ -33,13 +33,13 @@ func ExampleFrontend_fileserver() {
 	if err != nil { panic(err) }
 
 	//Enable the fileserver wiht docroot at "/tmp" under path "p"
-	frontend.EnableFileServer("/tmp","p")
+	container.EnableFileServer("/tmp","p")
 
 	//Create a redirect from homepage to the temporary index.html
-	frontend.Redirect("/","/p/__gotojs_index.html")
+	container.Redirect("/","/p/__gotojs_index.html")
 
 	// Start the server.
-	go func() {log.Fatal(frontend.Start("localhost:8789"))}()
+	go func() {log.Fatal(container.Start("localhost:8789"))}()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 

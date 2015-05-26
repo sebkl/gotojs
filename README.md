@@ -1,6 +1,6 @@
 # gotojs
-Package gotojs offers a library for **exposing go-interfaces as JavaScript proxy objects**.
-Therefore package gotojs assembles a JS engine which creates proxy objects as JS code and forwards the calls to them via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
+Package gotojs offers a library for **exposing go-interfaces** as **HTTP based RPC interface** and **JavaScript proxy objects**.
+As a first step gotojs makes go-interfaces,function, attributes and handler implementations accessible as an HTTP based RPC-like API. In addition to that a JS engine is assembled which creates proxy objects as JS code and forwards its calls via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
 
 ## Usage
 ### Build an API
@@ -19,22 +19,22 @@ func (s MyService) Echo(in string) string {
 
 Initialize the gotojs engine and the service itself:
 ```go
-fe := NewFrontend()
+co := NewContainer()
 se := MyService{}
 ```
-*The [frontend](http://godoc.org/github.com/sebkl/gotojs#Frontend) may be initialized with further parameters that affect its way working.*
+*The [container](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) may be initialized with further parameters that affect its way working.*
 
 Expose the service methods under a given name (context: `myservice`)
 ```go
-fe.ExposeInterface(se,"myservice")
+co.ExposeInterface(se,"myservice")
 ```
-*A wide range of further [exposure methods](http://godoc.org/github.com/sebkl/gotojs#Frontend) are supported such as exposing entire interfaces, sets of interface methods, single functions or just properties.*
+*A wide range of further [exposure methods](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) are supported such as exposing entire interfaces, sets of interface methods, single functions or just properties.*
 
 Launch the server at web context `"/"` and listen on port `8080`:
 ```go
-fe.Start(":8080","/myapp")
+co.Start(":8080","/myapp")
 ```
-*The [frontend](http://godoc.org/github.com/sebkl/gotojs#Frontend) itself implements the http handler interface `ServeHTTP` and thus can be easily integrated in existing environments*
+*The [container](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) itself implements the http handler interface `ServeHTTP` and thus can be easily integrated in existing environments*
 
 ### Client side
 For accessing the JavasScript bindings, the engine has to be loaded first:
@@ -66,8 +66,12 @@ Expose static documents such as html and css files:
 ```go
 fe.EnableFileServer("local/path/to/htdocs","/files")
 ```
-*This can be used to expose also the web application frontend.*
+*In this way it is supposed to make the Document root available which contains the main web-application files. *
 
+Error handling:
+```go
+fe.ExposeFunction(func(hc *HTTPContext) { hc.Errorf(404,"To be Implemented") },"Service","TestError");
+```
 
 *More to be listed here*
 * *More complex data structures and converters*
@@ -78,6 +82,15 @@ fe.EnableFileServer("local/path/to/htdocs","/files")
 * *Data streams*
 * *Error handling*
 
+### GO vs JS signatures
+The bwlo map shows how the go-interfaces are being called using the JS proxy object.
+
+| GO | JS | Description |
+|-|-|-|
+| ```func Foo(a,b int) (c int)``` | ```var c = GOTOJS.Service.Foo(a,b);``` | Synchronous call **(deprecated)**  |
+| ```func Foo(a,b int) (c int)``` | ```GOTOJS.Service.Foo(a,b,function(c) { ... });``` |  Asynchronous call: The callback is always the last argument of the method call.|
+| ```func Foo(postBody *BinaryContent) (b int)``` | ```GOTOJS.Service.Foo(postBody,mimetype,function(b) { ... });``` | Call with plain untouched post body data.|
+| ```func Foo(w http.ResponseWriter, r *http.Request)``` | ```GOTOJS.Service.Foo(postBody,mimetype,function(w) { ... });``` | A handler function exposed as such, receives the transmitted data in the request object and replies via the response writer.|
 
 ## Examples
 
@@ -87,7 +100,9 @@ A list of more comprehensive examples can be found below:
 2. Basic [interface exposure](https://github.com/sebkl/gotojs/blob/master/example_interface_test.go)
 3. A simple [web application](https://github.com/sebkl/gotojs/blob/master/example_fileserver_test.go)
 4. Dealing with [sessions](https://github.com/sebkl/gotojs/blob/master/example_sessions_test.go)
-4. Inline [exposures](https://github.com/sebkl/gotojs/blob/master/example_static_test.go)
+5. Inline [exposures](https://github.com/sebkl/gotojs/blob/master/example_static_test.go)
+6. [Handler](https://github.com/sebkl/gotojs/blob/master/example_binary_test.go) for binary POST requests
+7. Standard [handler exposures](https://github.com/sebkl/gotojs/blob/master/example_handlerbinding_test.go)
 
 *More to come...*
 
@@ -101,7 +116,7 @@ import (
 )
 
 func init() {
-	frontend := NewFrontend()
+	container := NewContainer()
 
 	/* Define function that just returns all header of a incoming http request */
 	f:= func (c *gae.Context) map[string][]string {
@@ -110,9 +125,9 @@ func init() {
 	}
 
 	/* Expose/bind function: */
-	frontend.ExposeFunction(f,"EchoService","Header")
+	container.ExposeFunction(f,"EchoService","Header")
 
-	SetupAndStart(frontend)
+	SetupAndStart(container)
 }
 ```
 Which actually implements a simple HTTP Trace service (@ /gotojs/EchoService/Header) for demonstration purposes.
@@ -139,6 +154,7 @@ For development purposes more dependencies are required due to nodejs unit testi
 * node.js version v0.10.20
 * npm version 1.3.11
 * node.js module jquery@1.8.3
+* node.js module request@2.55.0
 
 If not happend so far create your go environment and set the GOPATH environment variable accordingly:
 ```
@@ -156,8 +172,11 @@ v0.10.20
 #npm --version
 1.3.11
 #npm list jquery@1.8.3
-/home/sk
 └── jquery@1.8.3
+#npm list request
+└─┬ jquery@1.8.3
+  └─┬ jsdom@0.2.19
+    └── request@2.55.0
 ```
 
 If these are not available, please try to install at least the above listed version. The nodejs stuff is necessary

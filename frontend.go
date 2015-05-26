@@ -31,9 +31,9 @@ import (
 	"encoding/base64"
 	"strconv"
 	"compress/flate"
-	"io/ioutil"
 	"runtime/debug"
 	"github.com/dchest/jsmin"
+	"reflect"
 	. "github.com/sebkl/gotojs/client"
 	compilerapi "github.com/sebkl/go-closure-compilerapi"
 )
@@ -105,6 +105,7 @@ const (
 	tokenValidateArguments = "MA"
 	tokenHttpMethod = "ME"
 	tokenHasBinary = "BIN"
+	tokenReturnBinary = "RBI"
 	tokenHeaderCRID = "IH"
 	tokenContentType = "CT"
 	tokenCRIDLength = "CL"
@@ -166,28 +167,6 @@ func (c *HTTPContext) Errorf(status int ,f string, args ...interface{})  {
 	c.Response.Header().Set(DefaultHeaderError,hv)
 	//log.Printf("%d: %s",status,hv)
 	panic(hv)
-}
-
-// The main frontend object to the "gotojs" bindings. It can be treated as a 
-// HTTP facade of "gotojs".
-type Frontend struct {
-	backend //embedd BindingContainer and extend
-	*http.ServeMux //embedd http muxer
-	templateSource Templates
-	template map[string]*template.Template
-	namespace string
-	context string
-	extUrl *url.URL
-	templateBasePath string
-	flags int
-	httpd *http.Server
-	addr string
-	cache map[string]*cache
-	publicDir string
-	publicContext string
-	fileServer http.Handler
-	key []byte //key used to enctrypt the cookie.
-	HTTPContextConstructor HTTPContextConstructor
 }
 
 //Cookie encoder. Standard encoder uses "=" symbol which is not allowed for cookies.
@@ -322,7 +301,7 @@ func (s *Session) Cookies(u *url.URL) []*http.Cookie {
 	return ret
 }
 
-// HTTPContext is a context object that will be injected by the frontend whenever an exposed method or function parameter
+// HTTPContext is a context object that will be injected by the container whenever an exposed method or function parameter
 // is of type *HTTPContext. It contains references to all relevant http related objects like request and 
 // response object.
 type HTTPContext struct{
@@ -331,7 +310,7 @@ type HTTPContext struct{
 	Response http.ResponseWriter
 	ErrorStatus int
 	ReturnStatus int
-	Frontend *Frontend
+	Container *BindingContainer
 }
 
 // Session tries to extract a session from the HTTPContext.
@@ -359,7 +338,7 @@ func (c *HTTPContext) CRID() string {
 	return c.Request.Header.Get(DefaultHeaderCRID)
 }
 
-// NewFrontend creates a new proxy frontend object. Required parameter are the configuration flags. Optional
+// NewContainer creates a new proxy container object. Required parameter are the configuration flags. Optional
 // parameters are:
 //
 // 1) Namespace to be used
@@ -367,10 +346,12 @@ func (c *HTTPContext) CRID() string {
 // 2) External URL the system is accessed
 //
 // 3) The base path where to look for template and library subdirectories
-//func NewFrontend(flags int,args ...string) (*Frontend){
-func NewFrontend(args ...Properties) (*Frontend){
-	f := Frontend{
-		backend: newBackend(),
+//func NewContainer(flags int,args ...string) (*BindingContainer){
+func NewContainer(args ...Properties) (*BindingContainer){
+	f := &BindingContainer{
+		bindingContainer: make(bindingContainer),
+		globalInjections: make(Injections),
+		converterRegistry: make(map[reflect.Type]Converter),
 		ServeMux: http.NewServeMux(),
 		flags: F_DEFAULT,
 		extUrl: nil,
@@ -385,6 +366,9 @@ func NewFrontend(args ...Properties) (*Frontend){
 		template: make(map[string]*template.Template),
 		HTTPContextConstructor: NewHTTPContext,
 		publicContext: DefaultFileServerContext}
+
+	f.RegisterConverter("",StringConverter)
+	f.RegisterConverter(time.Now(),TimeConverter)
 
 	//Initialize cache
 	for _,p := range Platforms {
@@ -438,12 +422,12 @@ func NewFrontend(args ...Properties) (*Frontend){
 	var bc *BinaryContent = nil
 	f.SetupGlobalInjection(bc)
 
-	return &f
+	return f
 }
 
 //BaseUrl returns the eternal base url of the service. 
 // This may be a full qualified URL or just the path component.
-func (b* Frontend) BaseUrl() string {
+func (b* BindingContainer) BaseUrl() string {
 	if (b.extUrl != nil) {
 		return b.extUrl.String()
 	} else {
@@ -454,7 +438,7 @@ func (b* Frontend) BaseUrl() string {
 // Preload JS libraries if existing.
 // TODO: An order needs to specified somehow.
 // TODO: Simplify this crap
-func (b *Frontend) loadLibraries(c *HTTPContext,plat string) int{
+func (b *BindingContainer) loadLibraries(c *HTTPContext,plat string) int{
 	log.Printf("Loading default libraries ...")
 
 
@@ -534,10 +518,10 @@ func loadExternalLibrary(c *HTTPContext,url string, out io.Writer) {
 }
 
 // Load the required templates ("binding.js", "interface.js" and "method.js") from the template directory.
-// The template directory itself can be specified  by the NewFrontend constructor function. This
+// The template directory itself can be specified  by the NewBindingContainer constructor function. This
 // only succeeds if all tempaltes can be loaded successfully. Otherwise the internal templates will
 // be used.
-func (b *Frontend) loadTemplatesFromDir(plat string) {
+func (b *BindingContainer) loadTemplatesFromDir(plat string) {
 	ntemplate,e := template.ParseFiles(
 		path.Join(b.templateBasePath,RelativeTemplatePath,plat,HTTPTemplate),
 		path.Join(b.templateBasePath,RelativeTemplatePath,plat,BindingTemplate),
@@ -556,7 +540,7 @@ func (b *Frontend) loadTemplatesFromDir(plat string) {
 }
 
 // Load internal default templates for "binding.js", "interface.js" and "method.js".
-func (b *Frontend) loadDefaultTemplates() {
+func (b *BindingContainer) loadDefaultTemplates() {
 	for p,t := range b.templateSource {
 		ft := template.New(HTTPTemplate)
 		_,e1 := ft.Parse(t.HTTP)
@@ -579,7 +563,7 @@ func (b *Frontend) loadDefaultTemplates() {
 
 // ClearCache clears the internally used cache. This also includes the engine code which needs 
 // to be reassembled afterwards. This happens on the next call that requests the engine.
-func (b *Frontend) ClearCache() {
+func (b *BindingContainer) ClearCache() {
 	for p,_ := range b.cache {
 		log.Printf("Clearing platform cache '%s' cache at revision %d",p,b.cache[p].revision)
 		b.cache[p] = &cache{}
@@ -587,8 +571,8 @@ func (b *Frontend) ClearCache() {
 }
 
 // Flags gets and sets configuration flags. If method marameter are omitted, flags are just read from
-// frontend object.
-func (b *Frontend) Flags(flags ...int) int{
+// container object.
+func (b *BindingContainer) Flags(flags ...int) int{
 	if len(flags) > 0 {
 		b.ClearCache()
 		n := int(F_CLEAR)
@@ -603,7 +587,7 @@ func (b *Frontend) Flags(flags ...int) int{
 // engineCacheKey generates a) an appropriate cache key for the given platform which may inlcude
 // the request URL of the current request context. And b) the url the given platform will use
 // to access the server side. This url is used for the templating engine which is cached.
-func (f *Frontend) engineCacheKey(url *url.URL,platform string) (key string, rurl string) {
+func (f *BindingContainer) engineCacheKey(url *url.URL,platform string) (key string, rurl string) {
 	if f.extUrl != nil {
 		url = f.extUrl
 	}
@@ -675,7 +659,7 @@ func Minify(c *http.Client,source []byte) []byte {
 // flag F_INCLUDE_LIBRARIES is set
 // TODO: Split this in individual methods if feasible.
 // TODO: Improve minify step.
-func (b *Frontend) build(c *HTTPContext,out io.Writer) {
+func (b *BindingContainer) build(c *HTTPContext,out io.Writer) {
 	p:=platform(c.Request)
 	url := b.externalUrlFromRequest(c.Request)
 	ckey,baseUrl := b.engineCacheKey(url,p)
@@ -739,6 +723,10 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 					rbc = "true"
 				}
 
+				if _,ok := bi.bindingInterface.(*handlerBinding); ok {
+					rbc = "true"
+				}
+
 				methodParams := MapAppend(map[string]string{
 					tokenMethodName: m,
 					tokenHttpMethod: "POST",
@@ -765,7 +753,7 @@ func (b *Frontend) build(c *HTTPContext,out io.Writer) {
 
 //Context gets or sets the gotojs path context. This path element defines
 //how the engine code where the engine js code is served.
-func (f *Frontend) Context(args ...string) string {
+func (f *BindingContainer) Context(args ...string) string {
 	al:=len(args)
 	if (al > 0) {
 		f.context = args[0]
@@ -786,7 +774,7 @@ func (f *Frontend) Context(args ...string) string {
 }
 
 // EnableFileServer configures the file server and assigns the rooutes to the Multiplexer.
-func (f *Frontend) EnableFileServer(args ...string) {
+func (f *BindingContainer) EnableFileServer(args ...string) {
 	al:=len(args)
 	if al > 0 {
 		f.publicDir = args[0]
@@ -825,11 +813,11 @@ func NewlogWrapper(origin http.Handler) *logWrapper {
 	return &logWrapper{origin}
 }
 
-// Setup creates and returns the final http handler for the frontend.
-// It is called automatically by start, but if the frontend is used as
+// Setup creates and returns the final http handler for the container.
+// It is called automatically by start, but if the container is used as
 // an handler somewhere alse this setup method should be called instead.
 // TODO: check what can be moved to initialization phase.
-func (f *Frontend) Setup(args ...string) (handler http.Handler){
+func (f *BindingContainer) Setup(args ...string) (handler http.Handler){
 	al:=len(args)
 
 	if (al > 0) {
@@ -863,26 +851,26 @@ func (f *Frontend) Setup(args ...string) (handler http.Handler){
 	return
 }
 
-// Start starts the http frontend. This method only returns in case a panic or unexpected
+// Start starts the http container. This method only returns in case a panic or unexpected
 // error occurs.
 // 1st optional parameter is the listen address ("localhost:8080") and 2nd optional parmaeter is
 // the engine context ("/gotojs")
 // If these are not provided, default or initialization values are used
-func (f *Frontend) Start(args ...string) error {
+func (f *BindingContainer) Start(args ...string) error {
 	_  = f.Setup(args...)
 	log.Printf("Starting server at \"%s\".",f.addr)
 	return f.httpd.ListenAndServe()
 }
 
 // Redirect is a convenience method which configures a redirect handler from the patter to adestination url.
-func (f* Frontend) Redirect(pattern,url string) {
+func (f* BindingContainer) Redirect(pattern,url string) {
 	f.Handle(pattern,http.RedirectHandler(url,http.StatusFound))
 }
 
 //HandleStatic is a convenience method which defines a static content handle that is assigned to the given path pattern.
 // It allows to declare statically served content like HTML or JS snippets.
 // The Content-Type can be optionally specified.
-func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
+func (f* BindingContainer) HandleStatic(pattern, content string, mime ...string) {
 	f.HandleFunc(pattern, func(w http.ResponseWriter,r *http.Request) {
 		if len(mime) > 0 {
 			w.Header().Set(CTHeader, mime[0])
@@ -892,7 +880,7 @@ func (f* Frontend) HandleStatic(pattern, content string, mime ...string) {
 }
 
 //externalUrlFromRequest builds a full qualified URL from the given request object.
-func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
+func (f *BindingContainer) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 	ret = &url.URL{}
 	if r.TLS == nil {
 		ret.Scheme = "http"
@@ -912,9 +900,17 @@ func (f *Frontend) externalUrlFromRequest(r *http.Request) (ret *url.URL) {
 	return
 }
 
+//ExposeHandler exposes a raw handler func to the given interface and mathod name.
+func (b *BindingContainer) ExposeHandler(handler http.HandlerFunc,lin,lfn string) Bindings {
+	//TODO: Deal wwith both, function and Handler type
+	ret := b.newHandlerBinding(handler,lin,lfn)
+	b.revision++
+	return ret.S()
+}
+
 //ExposeRemoteBinding ExposeRemoteBinding exposes a remote Binding by specifying the corresponding url.
 //A proxy function will be installed that passes the binding request to the remote side.
-func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindings {
+func (b *BindingContainer) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindings {
 
 	url,err := url.Parse(u)
 	if err != nil {
@@ -947,7 +943,7 @@ func (b *Frontend) ExposeRemoteBinding(u,rin,rmn,signature,lin,lfn string) Bindi
 //		i.e "/gotojs/Test/Hello?p=My&x=Name&z=is&p=Earl" would invoke the signature
 //		func (string,string,string,String).
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
-func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
+func(f *BindingContainer) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	Log("REQUEST","-",r.URL.Path)
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)
@@ -978,8 +974,8 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 
 	httpContext = f.HTTPContextConstructor(r,w)
 
-	if httpContext.Frontend == nil {
-		httpContext.Frontend = f
+	if httpContext.Container == nil {
+		httpContext.Container = f
 	}
 
 	if crid = httpContext.Request.Header.Get(DefaultHeaderCRID); len(crid) == 0 {
@@ -1026,9 +1022,9 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 
 				switch r.Method {
 					case "GET":
-						mt = b.processCall(obuf,NewI(httpContext,session),args...)
+						mt = b.processCall(obuf,NewI(httpContext,b,session),args...)
 					default:
-						mt = b.processCall(obuf,NewI(httpContext,session,NewBinaryContent(r)),args...)
+						mt = b.processCall(obuf,NewI(httpContext,b,session,NewBinaryContent(r)),args...)
 				}
 			} else {
 				httpContext.Errorf(http.StatusNotFound,"Binding %s.%s not found.",elems[0],elems[1])
@@ -1045,27 +1041,42 @@ func(f *Frontend) serveHTTP(w http.ResponseWriter,r *http.Request) {
 	}
 }
 
+//Url retrieves the actuall HTTP Url to access this binding directly.
+func (b Binding) Url() (ret *url.URL) {
+	ret,_ =url.Parse(
+		fmt.Sprintf(
+			"%s/%s/%s",
+			b.base().container.BaseUrl(),
+			b.base().InterfaceName(),
+			b.base().MethodName()))
+	return ret
+}
+
 // Internally used method to process a call. Input parameters, interface name and method name are read from a JSON encoded
 // input stream. The result is encoded to a JSON output stream.
 func (f Binding) processCall(out io.Writer,injs Injections,args ...interface{}) (mime string) {
-	var b []byte
 	var err error
-	defer func() {Log("CALL","-",f.Name(),strconv.Itoa(len(b))) }()
+	defer func() {Log("CALL","-",f.Name()) }()
 	ret := f.InvokeI(injs,args...)
 
 	if bin,ok := ret.(Binary); ok {
 		defer bin.Close()
-		b, err = ioutil.ReadAll(bin)
 		mime = bin.MimeType()
+		_,err = io.Copy(out,bin)
+
 	} else {
-		b, err = json.Marshal(ret)
-		mime = DefaultMimeType
+		//TODO: Remove buffering. Problem unbuffered Encode call adds a '\n'.
+		if ret != nil {
+			mime = DefaultMimeType
+			var b []byte
+			b, err = json.Marshal(ret)
+			out.Write(b)
+		}
 	}
 
 	if err != nil {
 		panic(err)
 	}
 
-	out.Write(b)
 	return
 }

@@ -7,13 +7,13 @@ import(
 	"net/http"
 )
 
-func ExampleFrontend_session() {
-	// Initialize the frontend.
-	frontend := NewFrontend()
+func ExampleBindingContainer_session() {
+	// Initialize the container.
+	container := NewContainer()
 
 	// Declare a public login function.
 	login := func (session *Session, username,password string) string{
-		if len(username) == len(password) { // Very stupid auth  ;)
+		if len(username) == len(password) { // trivial authentication  ;)
 			session.Set("username",username)
 			session.Set("authorized","true")
 			return "OK"
@@ -28,8 +28,8 @@ func ExampleFrontend_session() {
 	}
 
 	//Expose all functions and name them:
-	frontend.ExposeFunction(login,"main","login")
-	frontend.ExposeFunction(private,"main","private").If(
+	container.ExposeFunction(login,"main","login")
+	container.ExposeFunction(private,"main","private").If(
 		AutoInjectF(func (session *Session, c *HTTPContext) (b bool) {
 			if b = session.Get("authorized") == "true";!b {
 				//Status code should be set to 403
@@ -39,8 +39,8 @@ func ExampleFrontend_session() {
 		}))
 
 
-	// Start the server is seperate go routine in parallel.
-	go func() { frontend.Start(":8791","/gotojs") }()
+	// Start the server is separate go routine in parallel.
+	go func() { container.Start(":8791","/gotojs") }()
 
 	time.Sleep(1 * time.Second) // Wait for the other go routine having the server up and running.
 	http.DefaultClient.Jar,_ = cookiejar.New(nil) // Cookie jar is needed here in order to associate session
@@ -48,14 +48,13 @@ func ExampleFrontend_session() {
 	dump(http.Get("http://localhost:8791/gotojs/main/private/TestData"))
 	// Second call has an invalid password
 	dump(http.Get("http://localhost:8791/gotojs/main/login/Alice/123456"))
-	// Third call is a coorect login
+	// Third call is a correct login
 	dump(http.Get("http://localhost:8791/gotojs/main/login/Alice/12345"))
-	// Lat call is a successfull request for private data.
+	// Lat call is a successful request for private data.
 	dump(http.Get("http://localhost:8791/gotojs/main/private/TestData"))
 	http.DefaultClient.Jar = nil // Remove the cookie jar
 
 	// Output: 
-	// null
 	// "Invalid password."
 	// "OK"
 	// "This is private TestData of user Alice"

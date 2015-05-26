@@ -58,7 +58,7 @@ type ModuleController interface {
 }
 
 type BaseModuleController struct {
-	frontend *Frontend
+	container *BindingContainer
 	Next ModuleController
 }
 
@@ -90,15 +90,15 @@ func (con *BaseModuleController) ServeHTTP(res http.ResponseWriter, req *http.Re
 		case "/_ah/stop":
 			con.Stop(NewContext(hc))
 		default:
-			con.frontend.ServeHTTP(res,req)
+			con.container.ServeHTTP(res,req)
 	}
 }
 
 // NewBaseModuleController creates a generic module control that supoprts start/stop methods and integrates
 // the gae specific context injections. The constructor should be called after the service bindings have been defined.
 // A generic controller will be created and if given by parameter a subsequent one is chained in.
-func NewBaseModuleController(f *Frontend, cons ...ModuleController) *BaseModuleController {
-	ret := &BaseModuleController{frontend: f}
+func NewBaseModuleController(f *BindingContainer, cons ...ModuleController) *BaseModuleController {
+	ret := &BaseModuleController{container: f}
 	if len(cons) > 0 {
 		ret.Next = cons[0]
 	}
@@ -111,7 +111,7 @@ func NewBaseModuleController(f *Frontend, cons ...ModuleController) *BaseModuleC
 	return ret
 }
 
-func SetupAndStart(f *Frontend,cons ...ModuleController) {
+func SetupAndStart(f *BindingContainer,cons ...ModuleController) {
 	mc :=NewBaseModuleController(f,cons...)
 	f.Setup()
 	http.Handle("/",mc)

@@ -68,7 +68,7 @@ var {{.NS}} = {{.NS}} || {
 				status.onchange();
 			}
 			status.open[crid] = r;
-			if (size == 1 && status.oninprogress) {
+			if (status.size() == 1 && status.oninprogress) {
 				status.oninprogress();
 			}
 			r.complete(function() { 

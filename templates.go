@@ -35,7 +35,8 @@ var {{.NS}} = {{.NS}} || {
 			},
 			'oncompleted': undefined,
 			'oninprogress': undefined,
-			'onchange': undefined
+			'onchange': undefined,
+			'onprogress': undefined
 		},
 		'Queue': function(r,crid) {
 			var http = this;
@@ -45,6 +46,20 @@ var {{.NS}} = {{.NS}} || {
 				this.Backlog.push(r);
 				return;
 			} 
+
+			/* If no xhr defined setup up the progress hooks */
+			if (r.xhr === undefined && status.onprogress) {
+				r.xhr = function () {
+					var xhr = new window.XMLHttpRequest();
+					xhr.upload.addEventListener("progress", function (e) {
+						if (e.lengthComputable) { status.onprogress(e.loaded/e.total); }
+					}, false);
+					xhr.addEventListener("progress", function (e) {
+						if (e.lengthComputable) { status.onprogress(e.loaded/e.total); }
+					}, false);
+					return xhr;
+				};
+			}
 
 			r = $.ajax(r);
 			r.CRID = crid;
@@ -82,7 +97,10 @@ var {{.NS}} = {{.NS}} || {
 					"Content-Type": imt
 				},
 				data: data,
+				cache: false,
+				contentType: false,
 				processData: (imt == "{{.CT}}"),
+
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
 
@@ -160,6 +178,12 @@ var {{.NS}} = {{.NS}} || {};
 {{.NS}}.TYPES.Proxy.prototype = {
 	/*Methods */
 	constructor: {{.NS}}.TYPES.Proxy,
+	generateCRID: function() {
+		return {{.NS}}.CONST.CHASH + "_" + (this.callCounter++);
+	},
+	Post: function(url,data,callback) {
+		return {{.NS}}.HTTP.Call(this.generateCRID(),url,undefined,undefined,data,undefined,callback,"POST");
+	},
 	Call: function(i,m,args,bin,mt) {
 		var url ="{{.BC}}/"+i+"/"+m;
 		var callback = undefined;
@@ -169,7 +193,7 @@ var {{.NS}} = {{.NS}} || {};
 			callback = args.pop();
 		}
 
-		var crid = {{.NS}}.CONST.CHASH + "_" + (this.callCounter++);
+		var crid = this.generateCRID();
 		var data = ""
 		if (bin !== undefined) {
 			for (var i in args) { // Encode parameters
@@ -272,6 +296,10 @@ var {{.NS}} = {{.NS}} || {};
 		}
 	}{{end}}
 };
+
+/* General Proxy to expose an interface to perform HTTP AJAX calls. */
+{{.NS}}.HELPER.Proxy = new {{.NS}}.TYPES.Proxy();
+
 `,
 	Interface: `
 /* #### JS/INTERFACE #### */
@@ -279,7 +307,7 @@ var {{.NS}} = {{.NS}} || {};
 	{{.IN}}: function() {
 		/* Attributes */
 		this.name = "{{.IN}}";
-		this.proxy = new {{.NS}}.TYPES.Proxy();
+		this.proxy = {{.NS}}.HELPER.Proxy;
 	}
 }
 {{.NS}}.TYPES.INTERFACES.{{.IN}}.prototype = {

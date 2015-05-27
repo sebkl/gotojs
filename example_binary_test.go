@@ -8,13 +8,14 @@ import(
 	"io/ioutil"
 )
 
-func ExampleBindingContainer_binarycontent() {
+func ExampleContainer_binarycontent() {
 	// Initialize the container.
 	container := NewContainer()
 
 	// Declare a Hello World handler function. The input parameter is taken from the POST body
 	// and passed as a "BinaryContent" object. The returned string will be JSON encoded.
 	container.ExposeFunction(func(bc *BinaryContent) string {
+		defer bc.Close()
 		b,_ := ioutil.ReadAll(bc)
 		return string(b)
 	},"main","echo1")
@@ -22,6 +23,7 @@ func ExampleBindingContainer_binarycontent() {
 	//Declare a Hello World handler function. The response is directly passed to the ResponseWriter.
 	//The returning data is not anymore encoded as JSON.
 	container.ExposeFunction(func(bc *BinaryContent, hc *HTTPContext) {
+		defer bc.Close()
 		io.Copy(hc.Response,bc)
 	},"main","echo2")
 

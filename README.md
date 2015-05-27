@@ -9,7 +9,7 @@ Define the Service as a ``struct`` and add the methods.
 ```go
 import . "github.com/sebkl/gotojs"
 
-type MyService struct {
+TYpe MyService struct {
 }
 
 func (s MyService) Echo(in string) string {
@@ -22,19 +22,19 @@ Initialize the gotojs engine and the service itself:
 co := NewContainer()
 se := MyService{}
 ```
-*The [container](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) may be initialized with further parameters that affect its way working.*
+*The [container](http://godoc.org/github.com/sebkl/gotojs#Container) may be initialized with further parameters that affect its way working.*
 
 Expose the service methods under a given name (context: `myservice`)
 ```go
 co.ExposeInterface(se,"myservice")
 ```
-*A wide range of further [exposure methods](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) are supported such as exposing entire interfaces, sets of interface methods, single functions or just properties.*
+*A wide range of further [exposure methods](http://godoc.org/github.com/sebkl/gotojs#Container) are supported such as exposing entire interfaces, sets of interface methods, single functions or just properties.*
 
 Launch the server at web context `"/"` and listen on port `8080`:
 ```go
 co.Start(":8080","/myapp")
 ```
-*The [container](http://godoc.org/github.com/sebkl/gotojs#BindingContainer) itself implements the http handler interface `ServeHTTP` and thus can be easily integrated in existing environments*
+*The [container](http://godoc.org/github.com/sebkl/gotojs#Container) itself implements the http handler interface `ServeHTTP` and thus can be easily integrated in existing environments*
 
 ### Client side
 For accessing the JavasScript bindings, the engine has to be loaded first:
@@ -101,7 +101,7 @@ A list of more comprehensive examples can be found below:
 3. A simple [web application](https://github.com/sebkl/gotojs/blob/master/example_fileserver_test.go)
 4. Dealing with [sessions](https://github.com/sebkl/gotojs/blob/master/example_session_test.go)
 5. Inline [exposures](https://github.com/sebkl/gotojs/blob/master/example_static_test.go)
-6. [Handler](https://github.com/sebkl/gotojs/blob/master/example_binary_test.go) for binary POST requests
+6. [Handler](https://github.com/sebkl/gotojs/blob/master/example_binary_test.go) exposure for integration of existing HTTP interfaces 
 7. Standard [handler exposures](https://github.com/sebkl/gotojs/blob/master/example_handlerbinding_test.go)
 
 *More to come...*

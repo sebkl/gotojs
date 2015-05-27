@@ -18,7 +18,7 @@ func (s *Service) Hello(name string) string {
 	return fmt.Sprintf("Hello %s, how are you ? Regards, %s.", name,s.name)
 }
 
-func ExampleBindingContainer_interface() {
+func ExampleContainer_interface() {
 	// Initialize the container.
 	container := NewContainer()
 

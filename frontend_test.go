@@ -23,7 +23,7 @@ var $ = require("jquery");
 	engineNodeJS = "nodejs"
 )
 
-var container *BindingContainer
+var container *Container
 
 func TestInitialization(t *testing.T) {
 	container = NewContainer(
@@ -71,7 +71,7 @@ func fakeContext() (ret *HTTPContext) {
 	return ret
 }
 
-func executeJS(t *testing.T,fronted *BindingContainer,engine string, postCmd ...string) (string,error){
+func executeJS(t *testing.T,fronted *Container,engine string, postCmd ...string) (string,error){
 	t.Logf("Executing nodejs engine \"%s\"...",nodeCmd)
 	cmd := exec.Command(nodeCmd)
 	stdin,err:= cmd.StdinPipe()
@@ -422,7 +422,7 @@ func BenchmarkSessions (b *testing.B) {
 	}
 }
 
-func BenchmarkBindingContainer (b *testing.B) {
+func BenchmarkContainer (b *testing.B) {
 	container.ExposeFunction(fibonacci,"MATH","FIBO")
 	defer container.RemoveInterface("MATH")
 	b.ResetTimer()
@@ -591,18 +591,33 @@ func TestObjectCall(t *testing.T) {
 	container.RemoveInterface("Math")
 }
 
+type TestType struct { }
+func (TestType) ServeHTTP(w http.ResponseWriter,r *http.Request) {
+		b := []byte("OK")
+		w.Write(b)
+}
+
 func TestExposeHandler(t *testing.T) {
 	h := func(w http.ResponseWriter, r *http.Request) {
 		b := []byte("OK")
 		w.Write(b)
 	}
-	container.ExposeHandler(h,"H","OK")
+	container.ExposeHandlerFunc(h,"H","HANDLERFUNC")
+	container.ExposeHandler(TestType{},"H","HANDLER")
 	defer container.RemoveInterface("H")
 
-	out,err := executeJS(t,container,engineJQuery,"PROXY.H.OK('asdasd','application/octet-stream',function(r) { if (r != \"OK\") { throw 'Unexpected return value:' + r;}});");
+	out,err := executeJS(t,container,engineJQuery,"PROXY.H.HANDLERFUNC('asdasd','application/octet-stream',function(r) { if (r != \"OK\") { throw 'Unexpected return value:' + r;}});");
 	if err != nil {
 		t.Errorf("Could not invoke handler function: %s",err)
 	}
+
+	out,err = executeJS(t,container,engineJQuery,"PROXY.H.HANDLER('asdasd','application/octet-stream',function(r) { if (r != \"OK\") { throw 'Unexpected return value:' + r;}});");
+
+	if err != nil {
+		t.Errorf("Could not invoke handler object: %s",err)
+	}
+
+
 	t.Logf(out)
 }
 

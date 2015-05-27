@@ -10,7 +10,7 @@ import (
 	"io/ioutil"
 )
 
-func ExampleBindingContainer_fileserver() {
+func ExampleContainer_fileserver() {
 	// Initialize the container. 
 	container := NewContainer()
 

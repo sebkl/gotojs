@@ -7,7 +7,7 @@ import(
 	"net/http"
 )
 
-func ExampleBindingContainer_session() {
+func ExampleContainer_session() {
 	// Initialize the container.
 	container := NewContainer()
 

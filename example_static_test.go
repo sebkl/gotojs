@@ -8,7 +8,7 @@ import (
 	"bytes"
 )
 
-func ExampleBindingContainer_static() {
+func ExampleContainer_static() {
 	// Initialize the container.
 	container := NewContainer()
 

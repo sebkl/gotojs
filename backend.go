@@ -44,8 +44,8 @@ type Interfaces []Interface
 
 type bindingContainer map[string]Interface
 
-// BindingContainer represents a container which consists of a set of interfaces and their bindings.
-type BindingContainer struct {
+// Container represents a container which consists of a set of interfaces and their bindings.
+type Container struct {
 	bindingContainer
 	globalInjections Injections
 	revision uint64
@@ -101,7 +101,7 @@ var kindMapping = map[reflect.Kind]byte{
 	reflect.UnsafePointer: 'i' }
 
 //RegisterConverter defines the given converter function for the assigned type.
-func (b BindingContainer) RegisterConverter(t interface{}, c Converter) {
+func (b Container) RegisterConverter(t interface{}, c Converter) {
 	log.Printf("Registering converter for type %s",reflect.TypeOf(t))
 	b.converterRegistry[reflect.TypeOf(t)] = c
 }
@@ -187,7 +187,7 @@ func (bs Bindings) AddInjection(i interface{}) Bindings {
 
 // SetupGlobaleIjection declares a type that will always be injected.
 // This applies for both existing bindings as well as new bindings.
-func (b BindingContainer) SetupGlobalInjection(i interface{}) {
+func (b Container) SetupGlobalInjection(i interface{}) {
 	t := reflect.TypeOf(i)
 	b.globalInjections[t] = i
 	b.Bindings().AddInjection(i) // Add Injection for all existing bindings.
@@ -226,12 +226,12 @@ func (b Binding) addGlobalInjections() {
 
 // Expose an entire interface. All methods of the given interface will be exposed. THe name of the
 // exposed interface is either taken from type name or could be specified as additional name parameter.
-func (b *BindingContainer) ExposeInterface(i interface{},name ...string) (ret Bindings) {
+func (b *Container) ExposeInterface(i interface{},name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"",name...)
 }
 
 // ExposeMethod is a convenience method to ExposeMethods for exposing a single method of an interface.
-func (b *BindingContainer) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
+func (b *Container) ExposeMethod(i interface{}, name string,target_name ...string) (ret Bindings) {
 	return b.ExposeMethods(i,"^" + name + "$",target_name...)
 }
 
@@ -269,12 +269,12 @@ func findInterfaceName(i interface{}) (in string){
 
 //ExposeAllAttributes is a convenience method to ExposeAttribute which exposes
 // all public attributes of the given object.
-func (b* BindingContainer) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
+func (b* Container) ExposeAllAttributes(i interface{}, name... string) (Bindings) {
 	return b.ExposeAttributes(i,"",name...)
 }
 
 // ExposeAttributes exposes getter function to all public attributes of the given object.
-func (b* BindingContainer) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
+func (b* Container) ExposeAttributes(i interface{}, pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -305,7 +305,7 @@ func (b* BindingContainer) ExposeAttributes(i interface{}, pattern string, name 
 }
 
 // ExposeMethods exposes the methods of a interface that do match the given regex pattern.
-func (b *BindingContainer) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
+func (b *Container) ExposeMethods(i interface{},pattern string, name ...string) (ret Bindings) {
 	i = resolvePointer(i)
 
 	// Find name either by args or by interface type. 
@@ -353,7 +353,7 @@ func (b *BindingContainer) ExposeMethods(i interface{},pattern string, name ...s
 }
 
 // ExposeFunction exposes a single function. No receiver is required for this binding.
-func (b *BindingContainer) ExposeFunction(f interface{}, name ...string) Bindings {
+func (b *Container) ExposeFunction(f interface{}, name ...string) Bindings {
 	v:= reflect.ValueOf(f)
 	if v.Kind() != reflect.Func {
 		panic(fmt.Errorf("Parameter is not a function. %s/%s",v.Kind().String(),reflect.Func.String()))
@@ -377,13 +377,13 @@ func (b *BindingContainer) ExposeFunction(f interface{}, name ...string) Binding
 }
 
 ///ExposeYourself exposes some administrative and discovery methods of the gotojs container functionality.
-func (b *BindingContainer) ExposeYourself(args ...string) (ret Bindings) {
+func (b *Container) ExposeYourself(args ...string) (ret Bindings) {
 	in := DefaultInternalInterfaceName
 	if len(args) > 0 {
 		in = args[0]
 	}
 	ret = make(Bindings,2)
-	ret[0] = b.ExposeFunction(func (b *BindingContainer) map[string]string {
+	ret[0] = b.ExposeFunction(func (b *Container) map[string]string {
 		bs := b.Bindings()
 		ret := make(map[string]string)
 		for _,b := range bs {
@@ -392,7 +392,7 @@ func (b *BindingContainer) ExposeYourself(args ...string) (ret Bindings) {
 		return ret
 	},in,"Bindings").AddInjection(b)[0]
 
-	ret[1] = b.ExposeFunction(func (b *BindingContainer) []string{
+	ret[1] = b.ExposeFunction(func (b *Container) []string{
 		return b.InterfaceNames()
 	},in,"Interfaces").AddInjection(b)[0]
 	return
@@ -591,7 +591,7 @@ func (inj Injections) Add(i interface{}) {
 	inj[reflect.TypeOf(i)] = i
 }
 
-// MergeInjections merges multiple Injetions. The later ones overwrite the prveiouse ones.
+// MergeInjections merges multiple injections. The later ones overwrite the previous ones.
 func MergeInjections(inja ...Injections) (ret Injections) {
 	ret = make(Injections)
 	for _,is := range inja{
@@ -604,7 +604,7 @@ func MergeInjections(inja ...Injections) (ret Injections) {
 
 //convertParameterValue tries to convert the value of the given parameter to the target type.
 //More hi-level calls like strconv may be involved here.
-func (b *BindingContainer) convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
+func (b *Container) convertParameterValue(av reflect.Value,at reflect.Type) reflect.Value{
 	tk := at.Kind()
 	sk := av.Kind()
 
@@ -717,9 +717,10 @@ func convertReturnValue(iret []reflect.Value) interface{} {
 	}
 }
 
+//InvokeI invokes the given binding and adds the binding itself as an injection.
 func (b Binding) InvokeI(ri Injections,args ...interface{}) interface{} {
 	//Merge Injections. Runtime objects overwrite singletons.
-	inj := MergeInjections(b.base().singletons,ri)
+	inj := MergeInjections(b.base().singletons,ri,NewI(&b))
 
 	//Execute filters
 	for _,f := range b.base().filters {

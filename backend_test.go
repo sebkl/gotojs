@@ -441,6 +441,17 @@ func TestExposeAttributes(t* testing.T) {
 	}
 }
 
+func TestInjectBinding(t *testing.T) {
+	bin := be.ExposeFunction(func(b *Binding) string { log.Printf("###BIN: %s",b); return b.Name(); },"BIN","ECHO")[0]
+	defer be.RemoveInterface("BIN")
+
+
+	x := be.Invoke("BIN","ECHO")
+	if x != bin.Name() {
+		t.Errorf("Injection of binding failed: '%s'/'%s'",x,bin.Name())
+	}
+}
+
 func TestExposeYourself(t *testing.T) {
 	be.ExposeYourself("A")
 	defer be.RemoveInterface("AS")

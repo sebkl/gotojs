@@ -89,9 +89,6 @@ var {{.NS}} = {{.NS}} || {
 					if (mt !="{{.CT}}") {
 						/* Return as STRING */
 						ret = eval('\'' + d + '\'');
-					} else if (typeof(d) =='string') {
-						/* eval and return as JS object */
-						ret = eval('(' + d + ')');
 					} else {
 						/* return as JS object */
 						ret = d;
@@ -353,8 +350,6 @@ var {{.NS}} = {{.NS}} || {
 				try {
 					var mt = response.headers["content-type"] ;
 					if (mt != "{{.CT}}") {
-						ret.result = eval('\'' + d + '\'');
-					} else if (typeof(d) =='string') {
 						ret.result = eval('(' + d + ')');
 					} else {
 						ret.result = d;

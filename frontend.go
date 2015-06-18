@@ -146,6 +146,18 @@ func NewBinaryContent(req *http.Request) (ret *BinaryContent) {
 	return
 }
 
+//BinaryBuffer is an internal implementation to wrap a binary in a standard buffer object.
+type BinaryBuffer struct {
+	*bytes.Buffer
+	mt string
+}
+
+func (b *BinaryBuffer) MimeType() string { return b.mt }
+
+func (b *BinaryBuffer) Close() error { return nil }
+
+func NewBinaryBuffer(mt string) *BinaryBuffer { return &BinaryBuffer{bytes.NewBuffer([]byte{}),mt} }
+
 type HTTPContextConstructor func(*http.Request,http.ResponseWriter) *HTTPContext
 
 // NewHTTPContext creates a new HTTP context based on incoming 

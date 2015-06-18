@@ -103,15 +103,7 @@ var {{.NS}} = {{.NS}} || {
 
 				success: function(d,textStatus,request) {
 					var mt = request.getResponseHeader('Content-Type');
-
-					if (mt !="{{.CT}}") {
-						/* Return as STRING */
-						ret = eval('\'' + d + '\'');
-					} else {
-						/* return as JS object */
-						ret = d;
-					}
-
+					ret = d; /* assume that jquery parses json. */
 					if (callback) {
 						callback.bind(tobj)(ret);
 					} 

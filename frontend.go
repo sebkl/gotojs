@@ -89,7 +89,7 @@ const (
 	DefaultExternalBaseURL = "http://" + DefaultListenAddress
 	DefaultBasePath = "."
 	DefaultCookieName = "gotojs"
-	DefaultCookiePath = "/gotojs"
+	DefaultCookiePath = "/"
 	DefaultPlatform = "web"
 	DefaultMimeType = "application/json"
 	DefaultHeaderCRID = "x-gotojs-crid"

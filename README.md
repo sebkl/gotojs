@@ -1,6 +1,7 @@
 # gotojs
-Package gotojs offers a library for **exposing go-interfaces** as **HTTP based RPC interface** and **JavaScript proxy objects**.
-As a first step gotojs makes go-interfaces,function, attributes and handler implementations accessible as an HTTP based RPC-like API. In addition to that a JS engine is assembled which creates proxy objects as JS code and forwards its calls via JSON encoded HTTP Ajax requests. This allows web developers to easily write HTML5 based application using jQuery,YUI and other simalar frameworks without explictily dealing with ajax calls and RESTful server APIs but using a transparent RPC service.
+Package gotojs offers a library for **exposing go-interfaces** as **HTTP based RPC enpoints** and pre-generated **JavaScript proxy objects**.
+In a first step gotojs exposes go-interfaces,function, attributes and handler implementations as a HTTP based API by transforming the go-internal signature to a HTTP service. Parameters and return objects are encoded using JSON structures. A set of JavaScript proxy objects are assembled which are forwarding JS calls to the server-side go-implementation using JSON encoded Ajax requests.
+General client applications can directly access the HTTP based API service via given URL-structure whereby HTML5 based web-application using jQuery,YUI and other simalar frameworks just need to load the corresponding JS proxy objects (engine) in order to transparently access the actual go-implementation.
 
 ## Usage
 ### Build an API
@@ -9,7 +10,7 @@ Define the Service as a ``struct`` and add the methods.
 ```go
 import . "github.com/sebkl/gotojs"
 
-TYpe MyService struct {
+Type MyService struct {
 }
 
 func (s MyService) Echo(in string) string {

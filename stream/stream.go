@@ -4,23 +4,23 @@
 package stream
 
 import (
+	"container/list"
+	"encoding/json"
+	"fmt"
 	. "github.com/sebkl/gotojs"
 	"log"
-	"fmt"
 	"math/rand"
-	"strconv"
 	"os"
+	"strconv"
 	"time"
-	"encoding/json"
-	"container/list"
 )
 
 const (
-	DefaultMaxRecordCount = 10000 //in count of messages
-	DefaultLazyStart = true
-	DefaultRetryCount = 1
+	DefaultMaxRecordCount   = 10000 //in count of messages
+	DefaultLazyStart        = true
+	DefaultRetryCount       = 1
 	DefaultMaxRetryDeadline = 5 * time.Second
-	DefaultSessionTimeout = 30 * time.Second
+	DefaultSessionTimeout   = 30 * time.Second
 )
 
 type Source interface {
@@ -30,37 +30,38 @@ type Source interface {
 }
 
 type StreamSession struct {
-	Id ID
-	Next ID
+	Id         ID
+	Next       ID
 	LastAccess Timestamp
-	Begin Timestamp
+	Begin      Timestamp
 }
 
 type FetchRequest struct {
-	id ID
-	s *StreamSession
-	q chan []Message
+	id  ID
+	s   *StreamSession
+	q   chan []Message
 	max ID
 }
 
-func NewFetchRequest(s *StreamSession) *FetchRequest{
+func NewFetchRequest(s *StreamSession) *FetchRequest {
 	return &FetchRequest{
-		id: s.Next,
-		s: s,
+		id:  s.Next,
+		s:   s,
 		max: 0,
-		q: make(chan []Message) }
+		q:   make(chan []Message)}
 }
 
 type Fetcher struct {
 	sessions map[ID]*StreamSession
-	source Source
-	buf *Buffer
-	backlog *list.List
-	notify chan int
-	running bool
+	source   Source
+	buf      *Buffer
+	backlog  *list.List
+	notify   chan int
+	running  bool
 }
+
 //NewFetcher creates a new fetcher which consits of a BacklogRunner process.
-func NewFetcher(source Source) (ret *Fetcher,err error) {
+func NewFetcher(source Source) (ret *Fetcher, err error) {
 	ret = &Fetcher{running: false, source: source}
 	ret.buf = NewBuffer(DefaultBufferSize)
 	ret.backlog = list.New()
@@ -75,13 +76,13 @@ func NewFetcher(source Source) (ret *Fetcher,err error) {
 }
 
 //Internally used function to determine whether the source stream can be stopped since to more client stream are active.
-func (f* Fetcher) cleanup(timeout Timestamp) {
+func (f *Fetcher) cleanup(timeout Timestamp) {
 	now := Now()
-	for k,v := range f.sessions {
+	for k, v := range f.sessions {
 		dts := Timestamp(now - v.LastAccess)
 		if dts > timeout {
-			log.Printf("Killing session: %d, Timedout since %d seconds.",v.Id,int64(dts / 1000 ))
-			delete(f.sessions,k)
+			log.Printf("Killing session: %d, Timedout since %d seconds.", v.Id, int64(dts/1000))
+			delete(f.sessions, k)
 		}
 	}
 
@@ -90,8 +91,6 @@ func (f* Fetcher) cleanup(timeout Timestamp) {
 	}
 }
 
-
-
 // Fetch puts a fetchrequest to the backlog queue. The BacklogRunner process is taking care for sending the actual data back to the clients.
 func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	if f.buf.HasNext(fr.id) {
@@ -99,7 +98,7 @@ func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	} else {
 		if f.running {
 			// Reduce offset to 1 in order to avoid future requests
-			fr.id = f.buf.cid +1
+			fr.id = f.buf.cid + 1
 			f.backlog.PushBack(fr)
 
 			ret = <-fr.q
@@ -111,10 +110,10 @@ func (f *Fetcher) Fetch(fr *FetchRequest) (ret []Message) {
 	return
 }
 
-//BacklogRunner is the worker loop that continously servers the client (fetch requests) with outstanding messages.
-func (f* Fetcher) BacklogRunner() {
+//BacklogRunner is the worker loop that continoously serves the client (fetch requests) with outstanding messages.
+func (f *Fetcher) BacklogRunner() {
 	log.Printf("Started BacklogRunner.")
-	for c:=0;;c++ {
+	for c := 0; ; c++ {
 		<-f.notify
 		for e := f.backlog.Front(); e != nil; e = e.Next() {
 			fr, ok := e.Value.(*FetchRequest)
@@ -140,15 +139,15 @@ func (f *Fetcher) Start() (err error) {
 	go func(ret chan error) {
 		log.Printf("Starting source stream.")
 		//Try to start source stream.
-		for retryCount := 0 ;retryCount < DefaultRetryCount;retryCount++ {
+		for retryCount := 0; retryCount < DefaultRetryCount; retryCount++ {
 			startTime := time.Now()
 			if err = f.source.Start(); err != nil {
-				log.Printf("Could not start source stream: %s",err)
+				log.Printf("Could not start source stream: %s", err)
 			}
 
 			if tdif := time.Now().Sub(startTime); tdif > DefaultMaxRetryDeadline {
 				retryCount = 0 //reset retry counter
-				log.Printf("Reinitiating twitter connection. error within %d seconds. ",tdif)
+				log.Printf("Reinitiating twitter connection. error within %d seconds. ", tdif)
 			}
 		}
 
@@ -159,13 +158,13 @@ func (f *Fetcher) Start() (err error) {
 		//TODO: FORK ROUTINE HERE !!! and return success/failure immediately.
 		f.running = true
 		ret <- nil
-		for ;f.running; {
-			message,err := f.source.Next()
-			if (err == nil) {
+		for f.running {
+			message, err := f.source.Next()
+			if err == nil {
 				f.buf.Enqueue(message)
-				f.notify<-1
+				f.notify <- 1
 			} else {
-				log.Printf("Could not fetch next message from source. %s",err)
+				log.Printf("Could not fetch next message from source. %s", err)
 			}
 		}
 		log.Printf("Stream has stopped.")
@@ -187,28 +186,27 @@ func (f *Fetcher) Stop() {
 type Configuration struct {
 	SessionTimeout Timestamp //TODO: currently not used by fetcher. needs to be moved to fetcher.
 	MaxRecordCount int
-	BufferBitSize int
-	LazyStart bool
+	BufferBitSize  int
+	LazyStart      bool
 }
 
 type Stream struct {
 	fetcher *Fetcher
-	Config Configuration
+	Config  Configuration
 }
-
 
 //Internally used function to identifiy the users buffer cursor (called Stream) based on its GOTOJS session infromation.
 func (t *Stream) session(session *Session) (s *StreamSession) {
-	iid,_ := strconv.ParseInt(session.Get("ID"),10,64)
+	iid, _ := strconv.ParseInt(session.Get("ID"), 10, 64)
 	id := ID(iid)
 
-	if _,ok := t.fetcher.sessions[id]; !ok {
+	if _, ok := t.fetcher.sessions[id]; !ok {
 		nid := ID(rand.Int63())
 		s = &StreamSession{
-			Id: nid,
-			Next: t.fetcher.buf.cid,
+			Id:    nid,
+			Next:  t.fetcher.buf.cid,
 			Begin: Now()}
-		session.Set("ID",fmt.Sprintf("%d",nid))
+		session.Set("ID", fmt.Sprintf("%d", nid))
 		log.Printf("Created with session with id: %d", nid)
 		t.fetcher.sessions[nid] = s
 	} else {
@@ -231,15 +229,15 @@ func (t *Stream) Next(session *Session) (ret []Message) {
 	fr.max = ID(t.Config.MaxRecordCount)
 	ret = t.fetcher.Fetch(fr)
 	if ret != nil {
-		s.Next = ret[len(ret) -1].Id + 1 // Update id
+		s.Next = ret[len(ret)-1].Id + 1 // Update id
 	}
 	return
 }
 
 //Reset resets the users session. The cursor will be deleted and reinitialized.
-func (t* Stream) Reset(session *Session) {
+func (t *Stream) Reset(session *Session) {
 	s := t.session(session)
-	delete(t.fetcher.sessions,s.Id)
+	delete(t.fetcher.sessions, s.Id)
 }
 
 // Stop stops a stream and purges all open sessions.
@@ -251,7 +249,7 @@ func (t *Stream) Stop() {
 // Start checks whether the fetcher is currently running. If yes it returns immediately.
 // If not it is started. This mechanism allows to stop twitter source stream if no scubscribers
 // or sessions are currently open.
-func (t* Stream) Start() {
+func (t *Stream) Start() {
 	if !t.fetcher.running {
 		log.Printf("Starting stream process.")
 		if err := t.fetcher.Start(); err != nil {
@@ -264,23 +262,23 @@ func (t* Stream) Start() {
 
 //NewStream creates a new Stream based on the given Source implementation.
 //The default configuration can be overwritten by a configuration file named "streamconfig.json"
-func NewStream(source Source) (t* Stream,err error) {
-	fetcher,err := NewFetcher(source) // just pass the source connection here.
+func NewStream(source Source) (t *Stream, err error) {
+	fetcher, err := NewFetcher(source) // just pass the source connection here.
 
-	t = &Stream{	fetcher: fetcher,
-			Config: Configuration{	SessionTimeout: Timestamp(DefaultSessionTimeout.Nanoseconds() / 1000),
-						MaxRecordCount: DefaultMaxRecordCount,
-						LazyStart: DefaultLazyStart,
-						BufferBitSize: DefaultBufferSize },
-			}
+	t = &Stream{fetcher: fetcher,
+		Config: Configuration{SessionTimeout: Timestamp(DefaultSessionTimeout.Nanoseconds() / 1000),
+			MaxRecordCount: DefaultMaxRecordCount,
+			LazyStart:      DefaultLazyStart,
+			BufferBitSize:  DefaultBufferSize},
+	}
 	filename := "streamconfig.json"
 	configFile, oerr := os.Open(filename)
-	if (oerr == nil) {
-		log.Printf("Loading configuration from %s",filename)
+	if oerr == nil {
+		log.Printf("Loading configuration from %s", filename)
 		decoder := json.NewDecoder(configFile)
 		decoder.Decode(t.Config)
 	} else {
-		log.Printf("Could not load configiguration from %s",filename)
+		log.Printf("Could not load configiguration from %s", filename)
 	}
 
 	// Start fetcher process if no lazy start is configured

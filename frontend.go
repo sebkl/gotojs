@@ -972,6 +972,7 @@ func (f *Container) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(CTHeader, mt)
 		w.Header().Set(DefaultHeaderCRID, crid)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// we recover here because, we want to give a proper HTTP response whatever happens.
 		if re := recover(); re != nil {
 			//TODO: Create a HTTPErrorf() (besiedes httpcontest.Errorf() )
 			// here that also contains the desired status code.

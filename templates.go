@@ -2,8 +2,8 @@ package gotojs
 
 // Contains all loaded templates and references to external JS libraries.
 type Template struct {
-	HTTP,Binding,Interface,Method string
-	Libraries []string
+	HTTP, Binding, Interface, Method string
+	Libraries                        []string
 }
 
 //Templates per engine (web, nodejs) etc
@@ -17,10 +17,10 @@ func DefaultTemplates() (ret Templates) {
 	return
 }
 
-var Platforms = []string{"web","nodejs"}
+var Platforms = []string{"web", "nodejs"}
 
-var defaultTemplate = Template {
-	HTTP:`
+var defaultTemplate = Template{
+	HTTP: `
 /* ### JS/HTTP jquery #### */
 var {{.NS}} = {{.NS}} || {
 	'HTTP': {
@@ -340,7 +340,7 @@ var {{.NS}} = {{.NS}} || {};
 };
 `,
 	//Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"} }
-	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"} }
+	Libraries: []string{"http://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"}}
 
 var defaultNodeJSTemplate = Template{
 	HTTP: `
@@ -389,7 +389,7 @@ var {{.NS}} = {{.NS}} || {
 {{.NS}}.HTTP.Jar = {{.NS}}.HTTP.Request.jar();
 GLOBAL.{{.NS}} = {{.NS}};
 `,
-	Binding:  defaultTemplate.Binding,
+	Binding:   defaultTemplate.Binding,
 	Interface: defaultTemplate.Interface,
-	Method: defaultTemplate.Method,
-	Libraries: []string{} }
+	Method:    defaultTemplate.Method,
+	Libraries: []string{}}

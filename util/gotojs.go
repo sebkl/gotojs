@@ -2,25 +2,25 @@ package main
 
 import (
 	//"flag"
-	"os"
+	"encoding/json"
 	"fmt"
-	"regexp"
-	"io/ioutil"
+	compilerapi "github.com/ant0ine/go-closure-compilerapi"
 	. "github.com/sebkl/gotojs"
 	. "github.com/sebkl/gotojs/client"
-	compilerapi "github.com/ant0ine/go-closure-compilerapi"
-	"encoding/json"
+	"io/ioutil"
+	"os"
+	"regexp"
 	"strings"
 )
 
 const (
-	fflag = os.FileMode(0644)
-	dflag = os.FileMode(0755)
+	fflag                = os.FileMode(0644)
+	dflag                = os.FileMode(0755)
 	DefaultServerEnvName = "GOTOJS_HOST"
 )
 
 func printUsage() {
-	cmd:= os.Args[0]
+	cmd := os.Args[0]
 	fmt.Printf(`
 Usage:
 	%s <command> <mandatory_arguments> [optional_arguments]
@@ -38,9 +38,8 @@ The Commands are:
 Examples:
 	GOTOJS_HOST="http://somehost.com/gotojs" %s Trace.Echo
 	%s create /var/www/helloworld
-`,cmd,DefaultServerEnvName,cmd,cmd)
+`, cmd, DefaultServerEnvName, cmd, cmd)
 }
-
 
 func check(e error) {
 	if e != nil {
@@ -54,36 +53,36 @@ func exportTemplates(path string) {
 
 	temp := DefaultTemplates()
 
-	for p,t := range temp {
-		err := ioutil.WriteFile(path + "/" + p + "/" + HTTPTemplate,[]byte(t.HTTP),fflag);
+	for p, t := range temp {
+		err := ioutil.WriteFile(path+"/"+p+"/"+HTTPTemplate, []byte(t.HTTP), fflag)
 		check(err)
-		err = ioutil.WriteFile(path + "/" + p + "/" + BindingTemplate,[]byte(t.Binding),fflag);
+		err = ioutil.WriteFile(path+"/"+p+"/"+BindingTemplate, []byte(t.Binding), fflag)
 		check(err)
-		err = ioutil.WriteFile(path + "/" + p + "/" + InterfaceTemplate,[]byte(t.Interface),fflag);
+		err = ioutil.WriteFile(path+"/"+p+"/"+InterfaceTemplate, []byte(t.Interface), fflag)
 		check(err)
-		err = ioutil.WriteFile(path + "/" + p + "/" + MethodTemplate,[]byte(t.Method),fflag);
+		err = ioutil.WriteFile(path+"/"+p+"/"+MethodTemplate, []byte(t.Method), fflag)
 		check(err)
 	}
 }
 
 func createBaseDirs(path string) {
-	err := os.MkdirAll(path,dflag)
+	err := os.MkdirAll(path, dflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + DefaultFileServerDir,dflag)
+	err = os.MkdirAll(path+"/"+DefaultFileServerDir, dflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + RelativeTemplatePath,dflag)
+	err = os.MkdirAll(path+"/"+RelativeTemplatePath, dflag)
 	check(err)
-	for _,p := range Platforms {
-		err = os.MkdirAll(path + "/" + RelativeTemplatePath + "/" + p,dflag)
+	for _, p := range Platforms {
+		err = os.MkdirAll(path+"/"+RelativeTemplatePath+"/"+p, dflag)
 		check(err)
-		err = os.MkdirAll(path + "/" + RelativeTemplatePath + "/" + p + "/" + RelativeTemplateLibPath,dflag)
+		err = os.MkdirAll(path+"/"+RelativeTemplatePath+"/"+p+"/"+RelativeTemplateLibPath, dflag)
 		check(err)
 	}
 }
 
 func createSampleFiles(path string) {
 	createBaseDirs(path)
-	err := ioutil.WriteFile(path + "/" + DefaultFileServerDir + "/index.html",[]byte(`
+	err := ioutil.WriteFile(path+"/"+DefaultFileServerDir+"/index.html", []byte(`
 <!DOCTYPE HTML>
 <html>
  <head>
@@ -95,19 +94,18 @@ func createSampleFiles(path string) {
  <body>
   <h1>Hello World !</h1>
  </body>
-</html> `),fflag);
+</html> `), fflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + DefaultFileServerDir + "/css",dflag)
+	err = os.MkdirAll(path+"/"+DefaultFileServerDir+"/css", dflag)
 	check(err)
-	err = os.MkdirAll(path + "/" + DefaultFileServerDir + "/js",dflag)
+	err = os.MkdirAll(path+"/"+DefaultFileServerDir+"/js", dflag)
 	check(err)
-	err = ioutil.WriteFile(path + "/" + DefaultFileServerDir + "/css/main.css",[]byte(`
+	err = ioutil.WriteFile(path+"/"+DefaultFileServerDir+"/css/main.css", []byte(`
 h1{ font-family: sans-serif; color: #AAAAAA; }
-`),fflag);
+`), fflag)
 	check(err)
 
-
-	err = ioutil.WriteFile(path + "/app.go",[]byte(`
+	err = ioutil.WriteFile(path+"/app.go", []byte(`
 package main
 
 import (
@@ -154,7 +152,7 @@ func main() {
 	frontend.HandleStatic("/my.js",myjs,"application/javascript")
 	log.Fatal(frontend.Start(":8080","/gotojs"))
 }
-`),fflag);
+`), fflag)
 	check(err)
 }
 
@@ -168,59 +166,58 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
-
 	switch cmd {
-		case "example":
-			createSampleFiles(args[0])
-			exportTemplates(args[0] + "/" + RelativeTemplatePath)
-		case "create":
-			createBaseDirs(args[0])
-			exportTemplates(args[0] + "/" + RelativeTemplatePath)
-		case "export":
-			exportTemplates(args[0])
-		case "compile":
-			client := &compilerapi.Client{Language:"ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
-			bs, err := ioutil.ReadFile(args[0])
-			check(err)
-			o := client.Compile(bs)
+	case "example":
+		createSampleFiles(args[0])
+		exportTemplates(args[0] + "/" + RelativeTemplatePath)
+	case "create":
+		createBaseDirs(args[0])
+		exportTemplates(args[0] + "/" + RelativeTemplatePath)
+	case "export":
+		exportTemplates(args[0])
+	case "compile":
+		client := &compilerapi.Client{Language: "ECMASCRIPT5", CompilationLevel: "SIMPLE_OPTIMIZATIONS"}
+		bs, err := ioutil.ReadFile(args[0])
+		check(err)
+		o := client.Compile(bs)
 
-			if al > 3 {
-				out := os.Args[3]
-				ioutil.WriteFile(out,[]byte(o.CompiledCode),fflag)
+		if al > 3 {
+			out := os.Args[3]
+			ioutil.WriteFile(out, []byte(o.CompiledCode), fflag)
+		} else {
+			fmt.Println(o.CompiledCode)
+		}
+
+		//Log Errors and Warnings last.
+		for _, v := range o.Warnings {
+			fmt.Println(v.AsLogline())
+		}
+
+		for _, v := range o.Errors {
+			fmt.Println(v.AsLogline())
+		}
+	default:
+		r := regexp.MustCompile(`^(.*)\.(.*)$`)
+		if r.MatchString(cmd) {
+			sa := r.FindStringSubmatch(cmd)
+			iname := sa[1]
+			mname := sa[2]
+			server := os.Getenv(DefaultServerEnvName)
+			c := NewClient(server)
+			fmt.Printf("> %s.%s(%s) @ %s\n\n", iname, mname, strings.Join(args, ","), server)
+			ret, err := c.Invoke(iname, mname, SAToIA(args...)...)
+
+			if err != nil {
+				fmt.Printf("FAILED: %s", err)
+				os.Exit(1)
 			} else {
-				fmt.Println(o.CompiledCode)
+				by, _ := json.MarshalIndent(ret, "", "  ")
+				fmt.Printf("%s", string(by))
 			}
-
-			//Log Errors and Warnings last.
-			for _,v := range o.Warnings {
-				fmt.Println(v.AsLogline());
-			}
-
-			for _,v := range o.Errors {
-				fmt.Println(v.AsLogline());
-			}
-		default:
-			r := regexp.MustCompile(`^(.*)\.(.*)$`)
-			if r.MatchString(cmd) {
-				sa := r.FindStringSubmatch(cmd)
-				iname := sa[1]
-				mname := sa[2]
-				server := os.Getenv(DefaultServerEnvName)
-				c := NewClient(server)
-				fmt.Printf("> %s.%s(%s) @ %s\n\n",iname,mname,strings.Join(args,","),server)
-				ret,err := c.Invoke(iname,mname,SAToIA(args...)...)
-
-				if err != nil {
-					fmt.Printf("FAILED: %s",err)
-					os.Exit(1)
-				} else {
-					by, _ := json.MarshalIndent(ret,"","  ")
-					fmt.Printf("%s",string(by))
-				}
-			} else {
-				fmt.Printf("Unknown command: %s\n\n",cmd)
-				printUsage()
-			}
+		} else {
+			fmt.Printf("Unknown command: %s\n\n", cmd)
+			printUsage()
+		}
 	}
 
 }

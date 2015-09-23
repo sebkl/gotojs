@@ -1,18 +1,18 @@
 package gotojs
 
-import(
-	"net/http"
-	"reflect"
+import (
 	"fmt"
 	"log"
+	"net/http"
+	"reflect"
 )
 
 // remoteBinder is a function type that will be invoked for a remote binding.
-type remoteBinder func (c *HTTPContext,s *Session, i []interface{}) interface{}
+type remoteBinder func(c *HTTPContext, s *Session, i []interface{}) interface{}
 
 // bindingInterface declare binding specific methods.
 type bindingInterface interface {
-	invokeI(Injections,[]interface{}) interface{}
+	invokeI(Injections, []interface{}) interface{}
 	argCount() int
 	argType(int) reflect.Type
 	signature([]reflect.Type) string
@@ -21,12 +21,12 @@ type bindingInterface interface {
 
 // binding declares binding type independent attributes
 type binding struct {
-	elemName string
+	elemName      string
 	interfaceName string
-	injections map[int]reflect.Type
-	singletons Injections
-	filters []Filter
-	container *Container
+	injections    map[int]reflect.Type
+	singletons    Injections
+	filters       []Filter
+	container     *Container
 }
 
 type functionBinding struct {
@@ -37,56 +37,56 @@ type functionBinding struct {
 type attributeBinding struct {
 	binding
 	elemNum int
-	i interface{}
+	i       interface{}
 }
 
 type methodBinding struct {
 	binding
 	elemNum int
-	i interface{}
+	i       interface{}
 }
 
 type remoteBinding struct {
 	binding
 	remoteSignature string
-	i remoteBinder
+	i               remoteBinder
 }
 
 type handlerBinding struct {
 	binding
 	handler http.HandlerFunc
-	i http.Handler
+	i       http.Handler
 }
 
 // :-D
-func (b *binding) base() *binding{
+func (b *binding) base() *binding {
 	return b
 }
 
 //InterfaceName returns the name of the interface this binding is assigned to.
-func (b *binding) InterfaceName() string{
+func (b *binding) InterfaceName() string {
 	return b.interfaceName
 }
 
 //MEthodName returns the method name of this binding.
-func (b* binding) MethodName() string{
+func (b *binding) MethodName() string {
 	return b.elemName
 }
 
 // ValidationString generate a string that represents the signature of a method or function. It
 // is used to perform a runtime validation when calling a JS proxy method.
-func (b Binding) ValidationString() (ret string){
-	return b.signature(parameterTypeArray(b,false))
+func (b Binding) ValidationString() (ret string) {
+	return b.signature(parameterTypeArray(b, false))
 }
 func (b *binding) signature(a []reflect.Type) (ret string) {
 	ret = ""
 	//TODO: check direct Mapping
-	for _,v := range a {
+	for _, v := range a {
 		ret += string(kindMapping[v.Kind()])
 	}
 	return
 }
-func (b *remoteBinding) signature(a []reflect.Type) string{
+func (b *remoteBinding) signature(a []reflect.Type) string {
 	return b.remoteSignature
 }
 func (b *handlerBinding) signature(a []reflect.Type) string {
@@ -108,7 +108,7 @@ func (b *methodBinding) argType(i int) reflect.Type {
 func (b *functionBinding) argType(i int) reflect.Type {
 	return reflect.TypeOf(b.i).In(i)
 }
-func (b *handlerBinding) argType(i int) reflect.Type{
+func (b *handlerBinding) argType(i int) reflect.Type {
 	return reflect.TypeOf("")
 }
 
@@ -131,15 +131,12 @@ func (b *handlerBinding) argCount() int {
 	return 0
 }
 
-
-
-
 //NewRemoteBinding creates a new remote binding. All details are kept in the closure of the given proxy function.
-func (b *Container) newRemoteBinding(i remoteBinder,sig,in,mn string) (ret Binding) {
+func (b *Container) newRemoteBinding(i remoteBinder, sig, in, mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &remoteBinding{
-		binding: *b.newBinding(in,mn),
+		binding:         *b.newBinding(in, mn),
 		remoteSignature: sig,
-		i: i,
+		i:               i,
 	}}
 	ret.addGlobalInjections()
 	b.bindingContainer[in][mn] = ret
@@ -148,49 +145,49 @@ func (b *Container) newRemoteBinding(i remoteBinder,sig,in,mn string) (ret Bindi
 
 // newBinding creates a new binding object that is associated with the given container.
 // All existing global Injections will be added to this binding.
-func (b *Container) newBinding(in,mn string) (*binding) {
-	_,found := b.Binding(in,mn)
+func (b *Container) newBinding(in, mn string) *binding {
+	_, found := b.Binding(in, mn)
 	if found {
-		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.",mn,in)
+		log.Printf("Binding \"%s\" already exposed for interface \"%s\". Overwriting.", mn, in)
 	} else {
-		if _,f := b.bindingContainer[in]; !f {
+		if _, f := b.bindingContainer[in]; !f {
 			im := make(map[string]Binding)
 			b.bindingContainer[in] = im
 		}
 
-		if _,f := b.bindingContainer[in][mn]; !f {
+		if _, f := b.bindingContainer[in][mn]; !f {
 			r := Binding{}
 			b.bindingContainer[in][mn] = r
 		}
 	}
 	p := &binding{
-		elemName: mn,
+		elemName:      mn,
 		interfaceName: in,
-		container: b,
-		singletons: make(Injections),
-		injections: make(map[int]reflect.Type)}
+		container:     b,
+		singletons:    make(Injections),
+		injections:    make(map[int]reflect.Type)}
 	return p
 }
 
-func (b* Container) newHandlerBinding(handler http.Handler,in,mn string) (ret Binding) {
+func (b *Container) newHandlerBinding(handler http.Handler, in, mn string) (ret Binding) {
 	ret = Binding{
-		bindingInterface: &handlerBinding {
-			binding: *b.newBinding(in,mn),
+		bindingInterface: &handlerBinding{
+			binding: *b.newBinding(in, mn),
 			handler: nil,
-			i: handler,
-	}}
+			i:       handler,
+		}}
 	// No Injections needed here
 	b.bindingContainer[in][mn] = ret
 	return
 }
 
-func (b* Container) newHandlerFuncBinding(handler http.HandlerFunc,in,mn string) (ret Binding) {
+func (b *Container) newHandlerFuncBinding(handler http.HandlerFunc, in, mn string) (ret Binding) {
 	ret = Binding{
-		bindingInterface: &handlerBinding {
-			binding: *b.newBinding(in,mn),
+		bindingInterface: &handlerBinding{
+			binding: *b.newBinding(in, mn),
 			handler: handler,
-			i: nil,
-	}}
+			i:       nil,
+		}}
 	// No Injections needed here
 	b.bindingContainer[in][mn] = ret
 	return
@@ -198,11 +195,11 @@ func (b* Container) newHandlerFuncBinding(handler http.HandlerFunc,in,mn string)
 
 //newMethodBinding creates a new method binding with the given interface and method name, whereby
 // x specifies the x-th method of the given object.
-func (b *Container) newMethodBinding(i interface{},x int,in,mn string) (ret Binding) {
+func (b *Container) newMethodBinding(i interface{}, x int, in, mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &methodBinding{
-		binding: *b.newBinding(in,mn),
+		binding: *b.newBinding(in, mn),
 		elemNum: x,
-		i: i,
+		i:       i,
 	}}
 	ret.addGlobalInjections()
 	b.bindingContainer[in][mn] = ret
@@ -210,10 +207,10 @@ func (b *Container) newMethodBinding(i interface{},x int,in,mn string) (ret Bind
 }
 
 //newFunctionBinding creates a new function binding with the given interface and method name.
-func (b *Container) newFunctionBinding(i interface{},in,mn string) (ret Binding) {
-	ret =  Binding{bindingInterface: &functionBinding{
-		binding: *b.newBinding(in,mn),
-		i: i,
+func (b *Container) newFunctionBinding(i interface{}, in, mn string) (ret Binding) {
+	ret = Binding{bindingInterface: &functionBinding{
+		binding: *b.newBinding(in, mn),
+		i:       i,
 	}}
 	ret.addGlobalInjections()
 	b.bindingContainer[in][mn] = ret
@@ -222,11 +219,11 @@ func (b *Container) newFunctionBinding(i interface{},in,mn string) (ret Binding)
 
 //newAttributeBinding creates a new attribute getter binding whereby x specifies the x-th
 // field of there referenced object.
-func (b *Container) newAttributeBinding(i interface{},x int,in,mn string) (ret Binding) {
+func (b *Container) newAttributeBinding(i interface{}, x int, in, mn string) (ret Binding) {
 	ret = Binding{bindingInterface: &attributeBinding{
-		binding: *b.newBinding(in,mn),
+		binding: *b.newBinding(in, mn),
 		elemNum: x,
-		i: i,
+		i:       i,
 	}}
 	ret.addGlobalInjections()
 	b.bindingContainer[in][mn] = ret
@@ -240,15 +237,15 @@ func (b *methodBinding) invokeI(inj Injections, args []interface{}) interface{} 
 
 	//Sanity check whether binding object is not of kind function.
 	if val.Kind() == reflect.Func {
-		panic(fmt.Errorf("MethodBinding for \"%s.%s\" does not bind an object.",b.interfaceName,b.elemName))
+		panic(fmt.Errorf("MethodBinding for \"%s.%s\" does not bind an object.", b.interfaceName, b.elemName))
 	}
 
-	av := callValuesI(b,inj,args)
+	av := callValuesI(b, inj, args)
 
 	// Prepend the receiver
-	cav := make([]reflect.Value,len(av)+1)
+	cav := make([]reflect.Value, len(av)+1)
 	cav[0] = val
-	for i,v := range av {
+	for i, v := range av {
 		cav[i+1] = v
 	}
 
@@ -263,11 +260,11 @@ func (b *functionBinding) invokeI(inj Injections, args []interface{}) interface{
 
 	// Sanity check whether binding object is actually of kind function
 	if val.Kind() != reflect.Func {
-		panic(fmt.Errorf("FunctionBinding for \"%s.%s\"  does not bind a function.",b.interfaceName,b.elemName))
+		panic(fmt.Errorf("FunctionBinding for \"%s.%s\"  does not bind a function.", b.interfaceName, b.elemName))
 	}
 	meth := reflect.ValueOf(b.i)
 
-	av := callValuesI(b,inj,args)
+	av := callValuesI(b, inj, args)
 	return convertReturnValue(meth.Call(av)) // Call with receiver and consider injected objects.
 }
 
@@ -277,10 +274,10 @@ func (b *remoteBinding) invokeI(inj Injections, args []interface{}) interface{} 
 	meth := reflect.ValueOf(b.i)
 
 	//wrap parameters in an []interface{} array
-	aa := make([]interface{},1)
+	aa := make([]interface{}, 1)
 	aa[0] = args
 
-	av := callValuesI(b,inj,aa) //Important: use args as array parameter (NOT exploded !)
+	av := callValuesI(b, inj, aa) //Important: use args as array parameter (NOT exploded !)
 	return convertReturnValue(meth.Call(av))
 }
 
@@ -291,9 +288,9 @@ func (b *attributeBinding) invokeI(inj Injections, args []interface{}) interface
 
 //invokeI returns invokes the associated Handler
 func (b *handlerBinding) invokeI(inj Injections, args []interface{}) interface{} {
-	o,ok := inj[reflect.TypeOf(&HTTPContext{})]
+	o, ok := inj[reflect.TypeOf(&HTTPContext{})]
 	if !ok {
-		panic(fmt.Errorf("No web context found: %s",inj))
+		panic(fmt.Errorf("No web context found: %s", inj))
 	}
 
 	httpContext, ok := o.(*HTTPContext)
@@ -302,12 +299,12 @@ func (b *handlerBinding) invokeI(inj Injections, args []interface{}) interface{}
 	}
 
 	if b.i != nil {
-		b.i.ServeHTTP(httpContext.Response,httpContext.Request)
+		b.i.ServeHTTP(httpContext.Response, httpContext.Request)
 		return nil
 	}
 
 	if b.handler != nil {
-		b.handler(httpContext.Response,httpContext.Request)
+		b.handler(httpContext.Response, httpContext.Request)
 		return nil
 	}
 

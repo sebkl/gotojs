@@ -2,10 +2,10 @@
 package gae
 
 import (
-	. "github.com/sebkl/gotojs"
-	"log"
 	"appengine"
 	"appengine/urlfetch"
+	. "github.com/sebkl/gotojs"
+	"log"
 	"net/http"
 	"time"
 )
@@ -13,53 +13,53 @@ import (
 // Google App Engine context wrapper.
 type Context struct {
 	appengine.Context
-	Client *http.Client
+	Client      *http.Client
 	HTTPContext *HTTPContext
 }
 
 // ContextInjector is a gotojs injector method that takes care to add the GAE context
 // to then injection vector and allows bindings to take it as injection argument.
-func ContextInjector(b Binding,hc *HTTPContext, injs Injections) bool {
-        if hc != nil {
-                injs.Add(NewContext(hc))
-        } else {
+func ContextInjector(b Binding, hc *HTTPContext, injs Injections) bool {
+	if hc != nil {
+		injs.Add(NewContext(hc))
+	} else {
 		log.Printf("No HTTPContext injected.")
 	}
-        return true
+	return true
 }
 
 //NewContext creates a new appengine context wrapper by the given http call attributes.
-func NewContext(hc *HTTPContext) (*Context){
+func NewContext(hc *HTTPContext) *Context {
 	c := appengine.NewContext(hc.Request)
 	client := urlfetch.Client(c)
 	hc.Client = client
 	if trans, ok := client.Transport.(*urlfetch.Transport); ok {
-		trans.Deadline = 60*time.Second
+		trans.Deadline = 60 * time.Second
 		client.Transport = trans
 	}
-	return &Context{Context: c,Client: client, HTTPContext: hc}
+	return &Context{Context: c, Client: client, HTTPContext: hc}
 }
 
 // Writer to log on appengine info level.
 func (g Context) Write(p []byte) (n int, err error) {
-	g.Infof("%s",string(p))
+	g.Infof("%s", string(p))
 	return len(p), nil
 }
 
 // ContextConstructor creates a gotos HTTPContext
 func ContextConstructor(req *http.Request, res http.ResponseWriter) *HTTPContext {
-	c := NewContext(NewHTTPContext(req,res))
+	c := NewContext(NewHTTPContext(req, res))
 	return c.HTTPContext
 }
 
 type ModuleController interface {
-        Start(*Context)
-        Stop(*Context)
+	Start(*Context)
+	Stop(*Context)
 }
 
 type BaseModuleController struct {
 	container *Container
-	Next ModuleController
+	Next      ModuleController
 }
 
 // Start is the menthod of the module controller that will be called when a
@@ -85,12 +85,12 @@ func (con *BaseModuleController) Stop(c *Context) {
 func (con *BaseModuleController) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	hc := &HTTPContext{Request: req, Response: res}
 	switch req.URL.Path {
-		case "/_ah/start":
-			con.Start(NewContext(hc))
-		case "/_ah/stop":
-			con.Stop(NewContext(hc))
-		default:
-			con.container.ServeHTTP(res,req)
+	case "/_ah/start":
+		con.Start(NewContext(hc))
+	case "/_ah/stop":
+		con.Stop(NewContext(hc))
+	default:
+		con.container.ServeHTTP(res, req)
 	}
 }
 
@@ -111,8 +111,8 @@ func NewBaseModuleController(f *Container, cons ...ModuleController) *BaseModule
 	return ret
 }
 
-func SetupAndStart(f *Container,cons ...ModuleController) {
-	mc :=NewBaseModuleController(f,cons...)
+func SetupAndStart(f *Container, cons ...ModuleController) {
+	mc := NewBaseModuleController(f, cons...)
 	f.Setup()
-	http.Handle("/",mc)
+	http.Handle("/", mc)
 }

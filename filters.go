@@ -1,29 +1,29 @@
 package gotojs
 
-import(
+import (
+	"fmt"
 	"log"
 	"reflect"
-	"fmt"
 )
 
 // AutoInjectF returns a filter function whose parameters will be automatically injected based
-// on their types. Besides explicitly announced Injections by SetupInjection, both the *Binding as 
+// on their types. Besides explicitly announced Injections by SetupInjection, both the *Binding as
 // well as the full Injections container will be injected.
 func AutoInjectF(f interface{}) Filter {
 	fv := reflect.ValueOf(f)
 	ft := reflect.TypeOf(f)
 	if fv.Kind() != reflect.Func {
-		panic(fmt.Errorf("Parameter is not a function. %s/%s",fv.Kind().String(),reflect.Func.String()))
+		panic(fmt.Errorf("Parameter is not a function. %s/%s", fv.Kind().String(), reflect.Func.String()))
 	}
 
 	if ft.NumOut() != 1 || ft.Out(0) != reflect.TypeOf(true) {
 		panic(fmt.Errorf("Return parameter is not of type bool."))
 	}
 
-	return func (b Binding,injo Injections) bool {
+	return func(b Binding, injo Injections) bool {
 		ac := ft.NumIn()
-		av := make([]reflect.Value,ac)
-		inj := MergeInjections(injo,NewI(b,injo))
+		av := make([]reflect.Value, ac)
+		inj := MergeInjections(injo, NewI(b, injo))
 
 		for x := 0; x < ac; x++ {
 			at := fv.Type().In(x)
@@ -32,7 +32,7 @@ func AutoInjectF(f interface{}) Filter {
 				av[x] = reflect.ValueOf(v)
 			} else {
 				// Not found
-				log.Printf("Cannot fulfill injection uring AutoInject for type: \"%s\". Aborting filter chain.",at)
+				log.Printf("Cannot fulfill injection uring AutoInject for type: \"%s\". Aborting filter chain.", at)
 				return false
 			}
 		}

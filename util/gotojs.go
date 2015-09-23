@@ -1,10 +1,11 @@
 package main
 
 import (
-	//"flag"
 	"encoding/json"
+	"flag"
 	"fmt"
 	compilerapi "github.com/ant0ine/go-closure-compilerapi"
+	"github.com/sebkl/flagconf"
 	. "github.com/sebkl/gotojs"
 	. "github.com/sebkl/gotojs/client"
 	"io/ioutil"
@@ -14,9 +15,8 @@ import (
 )
 
 const (
-	fflag                = os.FileMode(0644)
-	dflag                = os.FileMode(0755)
-	DefaultServerEnvName = "GOTOJS_HOST"
+	fflag = os.FileMode(0644)
+	dflag = os.FileMode(0755)
 )
 
 func printUsage() {
@@ -31,14 +31,23 @@ The Commands are:
 	export 	<path_to_template_dir>		Exports internally used templates.
 	compile <path_to_js_file> [output]	Compile javascript file.
 	<interface_name>.<method_name> [args]   Invoke call of remote gotojs instance. The
-						configuration is taken from the "%s"
+						configuration is taken from the "GJHOST"
 						environment variable. Default is:
 						"http://localhost:8080/gotojs"
 
 Examples:
-	GOTOJS_HOST="http://somehost.com/gotojs" %s Trace.Echo
+	GJSHOST="http://somehost.com/gotojs" %s Trace.Echo
+	%s --HOST="http://somehost.com/gotojs" Trace.Echo
 	%s create /var/www/helloworld
-`, cmd, DefaultServerEnvName, cmd, cmd)
+
+`, cmd, cmd, cmd, cmd)
+	flag.PrintDefaults()
+}
+
+var gotojsHost string
+
+func init() {
+	flag.StringVar(&gotojsHost, "HOST", "http://localhost:8080/gotojs", "GOTOJS endpoint to use.")
 }
 
 func check(e error) {
@@ -130,7 +139,7 @@ func AppendURL(context *HTTPContext, source string) string{
 
 func main() {
 	// Initialize the frontend.
-	frontend := NewFrontend()
+	frontend := NewContainer()
 
 	// Setup the service object.
 	service := Service{}
@@ -157,6 +166,7 @@ func main() {
 }
 
 func main() {
+	flagconf.Parse("GJS")
 	al := len(os.Args)
 	if al < 2 {
 		printUsage()
@@ -202,9 +212,8 @@ func main() {
 			sa := r.FindStringSubmatch(cmd)
 			iname := sa[1]
 			mname := sa[2]
-			server := os.Getenv(DefaultServerEnvName)
-			c := NewClient(server)
-			fmt.Printf("> %s.%s(%s) @ %s\n\n", iname, mname, strings.Join(args, ","), server)
+			fmt.Printf("> %s.%s(%s) @ %s\n\n", iname, mname, strings.Join(args, ","), gotojsHost)
+			c := NewClient(gotojsHost)
 			ret, err := c.Invoke(iname, mname, SAToIA(args...)...)
 
 			if err != nil {

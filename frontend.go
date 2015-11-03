@@ -818,7 +818,7 @@ type logWrapper struct {
 // LogMuxer
 func (lm *logWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t := time.Now()
-	defer Log(r.Method, strconv.FormatInt(time.Since(t).Nanoseconds()/(1000), 10), r.URL.Path)
+	defer Log("HTTP", r.Method, strconv.FormatInt(time.Since(t).Nanoseconds()/(1000), 10), r.URL.Path)
 	lm.handler.ServeHTTP(w, r)
 }
 
@@ -963,7 +963,6 @@ func (b *Container) ExposeRemoteBinding(u, rin, rmn, signature, lin, lfn string)
 //		func (string,string,string,String).
 //		If the call does not point to a binding like ("/gotojs") the engine code is returned.
 func (f *Container) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	Log("REQUEST", "-", r.URL.Path)
 	mt := DefaultMimeType
 	obuf := new(bytes.Buffer)
 	crid := DefaultCRID
@@ -1078,14 +1077,13 @@ func (b Binding) Url() (ret *url.URL) {
 // input stream. The result is encoded to a JSON output stream.
 func (f Binding) processCall(out io.Writer, injs Injections, args ...interface{}) (mime string) {
 	var err error
-	defer func() { Log("CALL", "-", f.Name()) }()
+	//defer func() { Log("CALL", "-", f.Name()) }()
 	ret := f.InvokeI(injs, args...)
 
 	if bin, ok := ret.(Binary); ok {
 		defer bin.Close()
 		mime = bin.MimeType()
 		_, err = io.Copy(out, bin)
-
 	} else {
 		//TODO: Remove buffering. Problem unbuffered Encode call adds a '\n'.
 		if ret != nil {

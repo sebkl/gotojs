@@ -96,7 +96,7 @@ func (f *Fetcher) cleanup(timeout Timestamp) {
 		}
 	}
 
-	if len(f.sessions) < 1 && f.config.StopOnLonely {
+	if (len(f.sessions) < 1) && f.config.StopOnLonely {
 		f.Stop()
 	}
 }
@@ -298,12 +298,6 @@ func NewStream(source Source) (t *Stream, err error) {
 		BufferBitSize:  DefaultBufferSize,
 	}
 
-	fetcher, err := NewFetcher(source, config) // just pass the source connection here.
-
-	t = &Stream{
-		fetcher: fetcher,
-	}
-
 	// Load configuration from file
 	filename := "streamconfig.json"
 	configFile, oerr := os.Open(filename)
@@ -316,6 +310,12 @@ func NewStream(source Source) (t *Stream, err error) {
 		}
 	} else {
 		log.Printf("Could not load configuration from %s", filename)
+	}
+
+	fetcher, err := NewFetcher(source, config) // just pass the source connection here.
+
+	t = &Stream{
+		fetcher: fetcher,
 	}
 
 	// Start fetcher process if no lazy start is configured

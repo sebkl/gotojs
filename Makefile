@@ -5,16 +5,19 @@
 #
 #
 GO = go
-NPM = npm
 PLATFORMS = linux freebsd darwin
 ARCHS = amd64
+EDITOR = gvim
 
 NAME = $(shell basename `pwd`)
 DEPENDENCIES = $(shell egrep -r -o -e "\"(github.com|code.google.com)/.+\"" . | cut -d ":" -f2 | sort -u | grep -v $(NAME))
-SRC = $(wildcard *.go)
+SRC = $(wildcard *.go */*.go */*/*.go)
 PKGS = $(shell ls -1d */ */*/)
 ALLBINS = $(foreach P,$(PLATFORMS),$(foreach A,$(ARCHS), $(NAME).$P.$A))
-
+VERSIONTAG = `git describe --always` `date +%Y%m%d`
+CGO_FLAGS =
+GOENV = CC=gcc $(CGO_FLAGS)
+.PHONY: build
 build: test $(ALLBINS)
 	$(GO) build -v
 
@@ -24,17 +27,43 @@ $$(NAME).$1.$2: $$(SRC)
 endef
 $(foreach P,$(PLATFORMS),$(foreach A,$(ARCHS), $(eval $(call BUILD,$P,$A))))
 
-deps: node_modules
+tags:
+	$(GOTAGS) gotags -R ../ > tags
+
+.PHONY: goclean
+goclean:
+	$(GO) clean
+	rm $(ALLBINS) || true
+
+.PHONY: godeps
+godeps:
 	$(GO) get -u $(DEPENDENCIES)
 
+.PHONY: edit
+edit: tags
+	$(EDITOR) $(SRC)
+
+
+# end of base Makefile
+#############################################
+
+SRC+=Makefile
+NPM = npm
+
+.PHONY: deps
+deps: node_modules godeps
+
+.PHONY: test
 test:
 	for d in $(PKGS); do cd $$d && $(GO) test -v; cd -; done
 	$(GO) test -v
 
-clean:
-	$(GO) $@
-	rm $(ALLBINS) || true
+.PHONY: clean
+clean: goclean
 
+.PHONY: fullclean
+fullclean: clean
+	rm -rf node_modules
 
 node_modules:
 	$(NPM) install jquery 

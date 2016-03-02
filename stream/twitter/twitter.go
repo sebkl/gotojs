@@ -153,21 +153,31 @@ func (s *TwitterSource) Next() (mes Message, err error) {
 
 		//Fetch from Twitter stream
 		if tweet, err := s.conn.Next(); err == nil {
-			var payload *Tweet
+			var (
+				payload     *Tweet
+				isSensitive bool
+			)
+
+			if tweet.PossiblySensitive != nil {
+				isSensitive = *tweet.PossiblySensitive
+			} else {
+				//If Sensitivity is not given in tweet, assume not to be sensitive.
+				isSensitive = false
+			}
 
 			if tweet.Coordinates != nil {
 				payload = &Tweet{
 					Long:        float64(tweet.Coordinates.Long),
 					Lat:         float64(tweet.Coordinates.Lat),
 					Text:        tweet.Text,
-					IsSensitive: *tweet.PossiblySensitive,
+					IsSensitive: isSensitive,
 					Sender:      tweet.User.ScreenName}
 			} else if tweet.Place != nil && tweet.Place != nil {
 				payload = &Tweet{
 					Long:        float64(tweet.Place.BoundingBox.Points[0].Long),
 					Lat:         float64(tweet.Place.BoundingBox.Points[0].Lat),
 					Text:        tweet.Text,
-					IsSensitive: *tweet.PossiblySensitive,
+					IsSensitive: isSensitive,
 					Sender:      tweet.User.ScreenName}
 			} else {
 				//return mes, err = errors.New("Invalid tweet.")

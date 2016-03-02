@@ -23,6 +23,7 @@ const (
 	DefaultMaxRetryDeadline = 5 * time.Second
 	DefaultSessionTimeout   = 30 * time.Second
 	DefaultRequestTimeout   = 4 * time.Second
+	DefaultStopOnLonely     = true
 )
 
 type Source interface {
@@ -95,7 +96,7 @@ func (f *Fetcher) cleanup(timeout Timestamp) {
 		}
 	}
 
-	if len(f.sessions) < 1 {
+	if (len(f.sessions) < 1) && f.config.StopOnLonely {
 		f.Stop()
 	}
 }
@@ -210,6 +211,7 @@ type Configuration struct {
 	MaxRecordCount int
 	BufferBitSize  uint
 	LazyStart      bool
+	StopOnLonely   bool
 }
 
 type Stream struct {
@@ -292,13 +294,8 @@ func NewStream(source Source) (t *Stream, err error) {
 		SessionTimeout: Timestamp(DefaultSessionTimeout.Nanoseconds() / 1000),
 		MaxRecordCount: DefaultMaxRecordCount,
 		LazyStart:      DefaultLazyStart,
+		StopOnLonely:   DefaultStopOnLonely,
 		BufferBitSize:  DefaultBufferSize,
-	}
-
-	fetcher, err := NewFetcher(source, config) // just pass the source connection here.
-
-	t = &Stream{
-		fetcher: fetcher,
 	}
 
 	// Load configuration from file
@@ -313,6 +310,12 @@ func NewStream(source Source) (t *Stream, err error) {
 		}
 	} else {
 		log.Printf("Could not load configuration from %s", filename)
+	}
+
+	fetcher, err := NewFetcher(source, config) // just pass the source connection here.
+
+	t = &Stream{
+		fetcher: fetcher,
 	}
 
 	// Start fetcher process if no lazy start is configured

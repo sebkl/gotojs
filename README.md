@@ -182,3 +182,11 @@ v0.10.20
 
 If these are not available, please try to install at least the above listed version. The nodejs stuff is necessary
 to perform the go unit tests.
+
+## TODO
+A list of implementation aspects that is currently being worked on:
+* Integrate with [grpc](http://www.grpc.io/)
+	* Generate proto while exposing interface
+	* support ProtocolBuffers as transport encoding (besides JSON)
+* Support [GCP Pub/Sub](http://cloud.google.com) as stream.
+

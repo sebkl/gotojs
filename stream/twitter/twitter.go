@@ -1,7 +1,7 @@
-//Package twitter of GOTOJS/stream offers a stream implemenation for Twitter.
+//Package twitter of GOTOJS/stream offers a stream implementation for Twitter.
 //Currently it is based on the twitter location API which needs to be generalized.
 //
-//The client key/secret configuration for the actual twitter API can be made in a localfile
+//The client key/secret configuration for the actual twitter API can be made in a local file
 // named "twitter_account.json"
 //
 // A sample file is provided with the source: "twitter_account.json.sample"
@@ -118,7 +118,7 @@ func NewTwitterSource(account, stream, baseUrl string) (ret *TwitterSource, err 
 	return
 }
 
-//Next fetches the nex message from the source stream.
+//Next fetches the next message from the source stream.
 func (s *TwitterSource) Next() (mes Message, err error) {
 	defer func() {
 		if r := recover(); r != nil {
